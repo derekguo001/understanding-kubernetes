@@ -10,6 +10,8 @@
 
 ## Kubelet
 
+- [抢占](kubelet/preemption.md)
+
 ## Kube Proxy
 
 ## Kubectl
