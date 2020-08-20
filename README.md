@@ -8,6 +8,17 @@
 
 ## Kubernetes Controller Manager
 
+- Namespace
+- Deployment
+- StatefulSet
+- DaemonSet
+
+- Volume
+
+  - 概述
+  - PV Controller
+  - [PVC Controller](kube-controller-manager/volume/pvc.md)
+
 ## Kubelet
 
 - [抢占](kubelet/preemption.md)
