@@ -8,7 +8,7 @@
 
 ## Kubernetes Controller Manager
 
-- Namespace
+- [Namespace](kube-controller-manager/namespace.md)
 - Deployment
 - StatefulSet
 - DaemonSet
