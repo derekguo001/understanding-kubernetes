@@ -25,6 +25,12 @@
 
 - 概述
 
+- Volume Plugin 框架和 Volume Plugin Manager
+
+  - Volume 相关的数据结构
+  - Volume Plugin 框架
+  - [Volume Plugin Manager](volume/plugin-manager.md)
+
 - Volume in Kube-Controller-Manager
 
   - AttachDetach Controller
@@ -43,7 +49,7 @@
 
 - Volume Manager in Kubelet
 
-- Volume Plugins
+- 各种 Volume Plugins 详解
 
   - 概述
   - hostpath
