@@ -47,7 +47,7 @@
 
 - Volume in Kube-Scheduler
 
-- Volume Manager in Kubelet
+- [Volume in Kubelet](kubelet/volume/overview.md)
 
 - 各种 Volume Plugins 详解
 
