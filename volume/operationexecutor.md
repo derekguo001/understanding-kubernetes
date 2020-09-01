@@ -280,3 +280,215 @@ func (oe *operationExecutor) MountVolume(
 ```
 
 `MountVolume()` 根据底层存储作为文件系统还是块设备提供给 Pod 使用，分为了两种情况。分类的依据是 `volumeSpec.PersistentVolume.Spec.VolumeMode` 为 "Block" 的时候作为块设备，其它情况都作为文件系统。根据这两种情况，分别调用 `GenerateMountVolumeFunc()` 和 `GenerateMapVolumeFunc()` 生成对应的函数。下面对这两种情况分别进行分析。
+
+### GenerateMountVolumeFunc() ###
+
+``` go
+func (og *operationGenerator) GenerateMountVolumeFunc(
+	waitForAttachTimeout time.Duration,
+	volumeToMount VolumeToMount,
+	actualStateOfWorld ActualStateOfWorldMounterUpdater,
+	isRemount bool) volumetypes.GeneratedOperations {
+    ...
+	mountVolumeFunc := func() (error, error) {
+		// Get mounter plugin
+		volumePlugin, err := og.volumePluginMgr.FindPluginBySpec(volumeToMount.VolumeSpec)
+		if err != nil || volumePlugin == nil {
+			return volumeToMount.GenerateError("MountVolume.FindPluginBySpec failed", err)
+		}
+```
+
+创建需要返回的 mountVolumeFunc 函数，首先使用 VolumeSpec 来获取 Volume Plugin 对象
+
+``` go
+		affinityErr := checkNodeAffinity(og, volumeToMount)
+		if affinityErr != nil {
+			return volumeToMount.GenerateError("MountVolume.NodeAffinity check failed", affinityErr)
+		}
+
+```
+
+然后对 Node 和 PV 做亲和性检测，注意只针对 `required` 类型的亲和性做检测，也就是 **强亲和性策略**。
+
+``` go
+		volumeMounter, newMounterErr := volumePlugin.NewMounter(
+			volumeToMount.VolumeSpec,
+			volumeToMount.Pod,
+			volume.VolumeOptions{})
+		if newMounterErr != nil {
+			return volumeToMount.GenerateError("MountVolume.NewMounter initialization failed", newMounterErr)
+
+		}
+
+		mountCheckError := checkMountOptionSupport(og, volumeToMount, volumePlugin)
+
+		if mountCheckError != nil {
+			return volumeToMount.GenerateError("MountVolume.MountOptionSupport check failed", mountCheckError)
+		}
+
+```
+
+通过 Volume Plugin 来获取 Mounter 对象，接着检测当前 Volume Plugin 是否支持 mount 选项的功能，具体会通过 Volume Plugin 的 `SupportsMountOption()` 来进行。注意这里的这个检测函数 `SupportsMountOption()` 并没有传入具体的 mount option 参数，整个检测逻辑也仅仅是判断 Volume Plugin 是否支持，而并非检测是否支持具体的某一个 mount option。
+
+``` go
+		// Get attacher, if possible
+		attachableVolumePlugin, _ :=
+			og.volumePluginMgr.FindAttachablePluginBySpec(volumeToMount.VolumeSpec)
+		var volumeAttacher volume.Attacher
+		if attachableVolumePlugin != nil {
+			volumeAttacher, _ = attachableVolumePlugin.NewAttacher()
+		}
+
+		// get deviceMounter, if possible
+		deviceMountableVolumePlugin, _ := og.volumePluginMgr.FindDeviceMountablePluginBySpec(volumeToMount.VolumeSpec)
+		var volumeDeviceMounter volume.DeviceMounter
+		if deviceMountableVolumePlugin != nil {
+			volumeDeviceMounter, _ = deviceMountableVolumePlugin.NewDeviceMounter()
+		}
+```
+
+然后通过 VolumeSpec 获取 Attacher 对象和 DeviceMounter 对象，后者负责把存储挂载到节点上的全局挂载点。
+
+``` go
+        ...
+		devicePath := volumeToMount.DevicePath
+		if volumeAttacher != nil {
+			// Wait for attachable volumes to finish attaching
+			klog.Infof(volumeToMount.GenerateMsgDetailed("MountVolume.WaitForAttach entering", fmt.Sprintf("DevicePath %q", volumeToMount.DevicePath)))
+
+			devicePath, err = volumeAttacher.WaitForAttach(
+				volumeToMount.VolumeSpec, devicePath, volumeToMount.Pod, waitForAttachTimeout)
+			if err != nil {
+				// On failure, return error. Caller will log and retry.
+				return volumeToMount.GenerateError("MountVolume.WaitForAttach failed", err)
+			}
+
+			klog.Infof(volumeToMount.GenerateMsgDetailed("MountVolume.WaitForAttach succeeded", fmt.Sprintf("DevicePath %q", devicePath)))
+		}
+```
+
+接着会尝试使用 Attacher 的 `WaitForAttach()` 来获取存储在节点上的具体设备文件路径，例如 `/dev/sda` 。
+
+这里有一个非常重要的点，就是 Attacher 对象的代码和调用时机，Attacher 对象顾名思义，就是将外部存储 attach 到 Pod 所在节点上或者执行反向的 detach 操作。因此对应于 [Kubernetes 中的 Volume 概述](overview.md) 中的第二阶段，并且代码位于 Kube Controller Manager 中。其实这并不完全正确，只是为了不涉及太多细节而进行的简化叙述。实际上 Attacher 代码也必须同时存在于 Kubelet 中，因为 Attacher 的 `WaitForAttach()` 是在 Kubelet 执行 mount 操作的时候进行调用的。
+
+这个也从另外一个方面解释了为什么 Attacher 对象可以使用 `WaitForAttach()` 返回底层存储设备在节点上的实际路径，如果 Attacher 代码只存在于 Kube Controller Manager 中的，它是无论如何也没有办法到某一个节点上执行对应操作的。这个问题的根本原因在于调用 `WaitForAttach()` 的时机，就是现在，在 Kubelet 中执行 mount 操作的时候，因此 Kubelet 中的 Attacher 知道如何通过 Kubelet 与当前节点上的文件系统等底层资源交互从而获取对应的信息。
+
+现在回到 `GenerateMountVolumeFunc()`。
+
+``` go
+		var resizeDone bool
+		var resizeError error
+		resizeOptions := volume.NodeResizeOptions{
+			DevicePath: devicePath,
+		}
+
+		if volumeDeviceMounter != nil {
+			deviceMountPath, err :=
+				volumeDeviceMounter.GetDeviceMountPath(volumeToMount.VolumeSpec)
+			if err != nil {
+				// On failure, return error. Caller will log and retry.
+				return volumeToMount.GenerateError("MountVolume.GetDeviceMountPath failed", err)
+			}
+
+			// Mount device to global mount path
+			err = volumeDeviceMounter.MountDevice(
+				volumeToMount.VolumeSpec,
+				devicePath,
+				deviceMountPath)
+			if err != nil {
+				og.checkForFailedMount(volumeToMount, err)
+				og.markDeviceErrorState(volumeToMount, devicePath, deviceMountPath, err, actualStateOfWorld)
+				// On failure, return error. Caller will log and retry.
+				return volumeToMount.GenerateError("MountVolume.MountDevice failed", err)
+			}
+
+			klog.Infof(volumeToMount.GenerateMsgDetailed("MountVolume.MountDevice succeeded", fmt.Sprintf("device mount path %q", deviceMountPath)))
+
+			// Update actual state of world to reflect volume is globally mounted
+			markDeviceMountedErr := actualStateOfWorld.MarkDeviceAsMounted(
+				volumeToMount.VolumeName, devicePath, deviceMountPath)
+			if markDeviceMountedErr != nil {
+				// On failure, return error. Caller will log and retry.
+				return volumeToMount.GenerateError("MountVolume.MarkDeviceAsMounted failed", markDeviceMountedErr)
+			}
+
+			resizeOptions.DeviceMountPath = deviceMountPath
+			resizeOptions.CSIVolumePhase = volume.CSIVolumeStaged
+
+			// NodeExpandVolume will resize the file system if user has requested a resize of
+			// underlying persistent volume and is allowed to do so.
+			resizeDone, resizeError = og.nodeExpandVolume(volumeToMount, resizeOptions)
+
+			if resizeError != nil {
+				klog.Errorf("MountVolume.NodeExpandVolume failed with %v", resizeError)
+				return volumeToMount.GenerateError("MountVolume.MountDevice failed while expanding volume", resizeError)
+			}
+		}
+```
+
+接着，如果 DeviceMounter 对象存在的话，会使用它的 `MountDevice()` 将底层存储挂载到全局挂载点。执行成功后使用 `actualStateOfWorld.MarkDeviceAsMounted()` 来更新 actualStateOfWorld 的状态。这时，如果发现磁盘需要扩容，就执行 `nodeExpandVolume()` 对其进行扩容操作。具体是使用 NodeExpandableVolumePlugin 对象的 `NodeExpand()` 进行，具体代码不在这里展开。
+
+```
+		if og.checkNodeCapabilitiesBeforeMount {
+			if canMountErr := volumeMounter.CanMount(); canMountErr != nil {
+				err = fmt.Errorf(
+					"Verify that your node machine has the required components before attempting to mount this volume type. %s",
+					canMountErr)
+				return volumeToMount.GenerateError("MountVolume.CanMount failed", err)
+			}
+		}
+
+		// Execute mount
+		mountErr := volumeMounter.SetUp(volume.MounterArgs{
+			FsGroup:             fsGroup,
+			DesiredSize:         volumeToMount.DesiredSizeLimit,
+			FSGroupChangePolicy: fsGroupChangePolicy,
+		})
+```
+
+然后使用 Mounter 对象的 `CanMount()` 来做一些预检测，判断是否可以执行 mount 操作，如果一切顺利，执行 Mounter 对象的 `Setup()` 进行 mount。
+
+``` go
+
+        ...
+		// We need to call resizing here again in case resizing was not done during device mount. There could be
+		// two reasons of that:
+		//	- Volume does not support DeviceMounter interface.
+		//	- In case of CSI the volume does not have node stage_unstage capability.
+		if !resizeDone {
+			_, resizeError = og.nodeExpandVolume(volumeToMount, resizeOptions)
+			if resizeError != nil {
+				klog.Errorf("MountVolume.NodeExpandVolume failed with %v", resizeError)
+				return volumeToMount.GenerateError("MountVolume.Setup failed while expanding volume", resizeError)
+			}
+		}
+```
+
+接着再次检测是否需要扩容，如果是的话则进行扩容操作。注意刚才的扩容操作是针对将存储设备挂载到全局挂载点的，有很多 Volume Plugin 实际上是没有全局挂载点的概念，也就不会执行相应的操作。因此真正的扩容就需要在这里执行。
+
+```
+		markVolMountedErr := actualStateOfWorld.MarkVolumeAsMounted(markOpts)
+		if markVolMountedErr != nil {
+			// On failure, return error. Caller will log and retry.
+			return volumeToMount.GenerateError("MountVolume.MarkVolumeAsMounted failed", markVolMountedErr)
+		}
+
+		return nil, nil
+	}
+
+	eventRecorderFunc := func(err *error) {
+		if *err != nil {
+			og.recorder.Eventf(volumeToMount.Pod, v1.EventTypeWarning, kevents.FailedMountVolume, (*err).Error())
+		}
+	}
+
+	return volumetypes.GeneratedOperations{
+		OperationName:     "volume_mount",
+		OperationFunc:     mountVolumeFunc,
+		EventRecorderFunc: eventRecorderFunc,
+		CompleteFunc:      util.OperationCompleteHook(util.GetFullQualifiedPluginNameForVolume(volumePluginName, volumeToMount.VolumeSpec), "volume_mount"),
+	}
+}
+```
+
+全部执行成功后，使用 `actualStateOfWorld.MarkVolumeAsMounted()` 更新 actualStateOfWorld 的状态，并返回。
