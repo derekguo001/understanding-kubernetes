@@ -13,7 +13,7 @@ func (ctrl *PersistentVolumeController) Run(stopCh <-chan struct{}) {
 }
 ```
 
-在 `PersistentVolumeController` 启动后，会分别启动两个 goroutine `volumeWorker` 处理 PV 对象。这个可以看做是 PV Controller 的入口函数。它每秒执行一次。
+在 `PersistentVolumeController` 启动后，会启动一个 goroutine `volumeWorker` 处理 PV 对象。这个可以看做是 PV Controller 的入口函数。它每秒执行一次。
 
 ## 入口函数 `volumeWorker()` ##
 
