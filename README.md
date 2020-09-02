@@ -38,9 +38,8 @@
 
     - 概述
 
-  - PersistentVolume Controller
+  - [PersistentVolume Controller](kube-controller-manager/volume/overview.md)
 
-    - 概述
     - PV Controller
     - [PVC Controller](kube-controller-manager/volume/persistentvolume/pvc.md)
 
