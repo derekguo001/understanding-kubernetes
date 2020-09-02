@@ -40,7 +40,7 @@
 
   - [PersistentVolume Controller](kube-controller-manager/volume/persistentvolume/overview.md)
 
-    - PV Controller
+    - [PV Controller](kube-controller-manager/volume/persistentvolume/pv-controller.md)
     - [PVC Controller](kube-controller-manager/volume/persistentvolume/pvc.md)
 
   - Expand Controller
