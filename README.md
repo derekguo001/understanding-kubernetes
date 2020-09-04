@@ -28,7 +28,7 @@
 - Volume Plugin 框架和 Volume Plugin Manager
 
   - Volume 相关的数据结构
-  - Volume Plugin 框架
+  - [Volume Plugin 框架](volume/plugin.md)
   - [Volume Plugin Manager](volume/plugin-manager.md)
   - [Volume 操作的真正执行者 OperationExecutor](volume/operationexecutor.md)
 
