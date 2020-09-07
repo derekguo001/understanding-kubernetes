@@ -45,7 +45,7 @@
 
   - Expand Controller
 
-- Volume in Kube-Scheduler
+- [Volume in Kube-Scheduler](kube-scheduler/volume/overview.md)
 
 - [Volume in Kubelet](kubelet/volume/overview.md)
 
