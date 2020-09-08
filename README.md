@@ -47,6 +47,8 @@
 
 - [Volume in Kube-Scheduler](kube-scheduler/volume/overview.md)
 
+  - [Volume 相关操作在调度过程中的执行时机](kube-scheduler/volume/scheduler-volume-binder.md)
+
 - [Volume in Kubelet](kubelet/volume/overview.md)
 
 - 各种 Volume Plugins 详解
