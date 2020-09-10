@@ -163,7 +163,3 @@ const (
 	VolumeBindingWaitForFirstConsumer VolumeBindingMode = "WaitForFirstConsumer"
 )
 ```
-
-## 关于 Annotation ##
-
-<TODO></TODO>

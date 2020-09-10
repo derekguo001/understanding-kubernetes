@@ -11,7 +11,7 @@
 
 删除时则按照相反的步骤执行。
 
-前两个阶段的工作由于不在 Pod 所在的节点上运行，因此可以由 Controller 完成，而第三个阶段则必须在 Pod 所在节点上运行。对应的，前两个阶段的代码都位于 Kubernetes Controller 中，而第三阶段的代码则位于 Kubelet 中。注意这里有一个例外，也就是第一阶段也可以由 Kubelet 完成，详见 [关于 attach/detach 操作](../kubelet/volume/overview.md#关于-attachdetach-操作)
+前两个阶段的工作由于不在 Pod 所在的节点上运行，因此可以由 Controller 完成，而第三个阶段则必须在 Pod 所在节点上运行。对应的，前两个阶段的代码都位于 Kubernetes Controller 中，而第三阶段的代码则位于 Kubelet 中。注意这里有一个例外，也就是第一阶段也可以由 Kubelet 完成，详见 [关于 attach 和 detach 操作](attach-detach.md)
 
 有两个需要注意的地方：
 1. 上面的流程中，如果 Volume Plugin 支持动态创建存储资源的话，用户只需要声明 PVC 对象，而 PV 对象则会自动创建。

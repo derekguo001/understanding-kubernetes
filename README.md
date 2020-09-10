@@ -25,6 +25,10 @@
 
 - [Kubernetes 中的 Volume 概述](volume/overview.md)
 
+  - [关于 attach 和 detach 操作](volume/attach-detach.md)
+  - [关于 mount 和 umount 操作](volume/mount-umount.md)
+  - [关于 Annotation](volume/annotation.md)
+
 - Volume Plugin 框架和 Volume Plugin Manager
 
   - [Volume 相关的数据结构](volume/volume-interface.md)
