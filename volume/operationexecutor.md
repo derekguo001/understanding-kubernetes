@@ -25,7 +25,7 @@ operationExecutor 核心函数有 5 个：
 - **UnmountVolume()**
 - **UnmountDevice()**
 
-需要特别说明的是最后一个，`UnmountDevice()` 是指将存储设备从节点上的全局挂载点执行 umount 操作。关于全局挂载点的说明，可参见 [挂载点](./plugin.md#挂载点)。还有一点就是为什么这里只有 `UnmountDevice()` 操作，而没有对应的 `MountDevice()`，这是因为将存储设备 mount 到节点上的全局挂载点这个操作是在 `MountVolume()` 中实现的。
+需要特别说明的是最后一个，`UnmountDevice()` 是指将存储设备从节点上的全局挂载点执行 umount 操作。关于全局挂载点的说明，可参见 [关于 mount 和 umount 操作](mount-umount.md)。还有一点就是为什么这里只有 `UnmountDevice()` 操作，而没有对应的 `MountDevice()`，这是因为将存储设备 mount 到节点上的全局挂载点这个操作是在 `MountVolume()` 中实现的。
 
 除了这几个核心函数之外，还有一些辅助的非核心函数，具体逻辑在这里就不再继续展开了。下面对这几个核心函数进行详细的分析。
 
@@ -446,7 +446,7 @@ func (og *operationGenerator) GenerateMountVolumeFunc(
 		})
 ```
 
-然后使用 Mounter 对象的 `CanMount()` 来做一些预检测，判断是否可以执行 mount 操作，如果一切顺利，执行 Mounter 对象的 `Setup()` 进行 mount。
+然后使用 Mounter 对象的 `CanMount()` 来做一些预检测，判断是否可以执行 mount 操作，如果一切顺利，执行 Mounter 对象的 `Setup()` 进行 mount，这个函数由 Volume Plugin 自己进行定义，内部执行的操作一般是将全局挂载点以 bind 模式挂载到 Pod 关联的 Volume 的挂载点上。
 
 ``` go
 
@@ -492,3 +492,281 @@ func (og *operationGenerator) GenerateMountVolumeFunc(
 ```
 
 全部执行成功后，使用 `actualStateOfWorld.MarkVolumeAsMounted()` 更新 actualStateOfWorld 的状态，并返回。
+
+### GenerateMapVolumeFunc() ###
+
+当 PV 作为块设备使用时，会调用 `GenerateMapVolumeFunc()` 进行相关的 mount 操作。由于块设备不同于文件系统，因此其 mount 操作又被称为 map。
+
+``` go
+func (og *operationGenerator) GenerateMapVolumeFunc(
+	waitForAttachTimeout time.Duration,
+	volumeToMount VolumeToMount,
+	actualStateOfWorld ActualStateOfWorldMounterUpdater) (volumetypes.GeneratedOperations, error) {
+
+	// Get block volume mapper plugin
+	blockVolumePlugin, err :=
+		og.volumePluginMgr.FindMapperPluginBySpec(volumeToMount.VolumeSpec)
+	if err != nil {
+		return volumetypes.GeneratedOperations{}, volumeToMount.GenerateErrorDetailed("MapVolume.FindMapperPluginBySpec failed", err)
+	}
+```
+
+首先，根据 VolumeSpec 找到对应的 Volume Plugin 对象。
+
+``` go
+	if blockVolumePlugin == nil {
+		return volumetypes.GeneratedOperations{}, volumeToMount.GenerateErrorDetailed("MapVolume.FindMapperPluginBySpec failed to find BlockVolumeMapper plugin. Volume plugin is nil.", nil)
+	}
+
+	affinityErr := checkNodeAffinity(og, volumeToMount)
+	if affinityErr != nil {
+		eventErr, detailedErr := volumeToMount.GenerateError("MapVolume.NodeAffinity check failed", affinityErr)
+		og.recorder.Eventf(volumeToMount.Pod, v1.EventTypeWarning, kevents.FailedMountVolume, eventErr.Error())
+		return volumetypes.GeneratedOperations{}, detailedErr
+	}
+```
+
+然后对 Volume 和节点做亲和性检测，检测逻辑与 `GenerateMountVolumeFunc()` 中的检测逻辑相同。
+
+``` go
+	blockVolumeMapper, newMapperErr := blockVolumePlugin.NewBlockVolumeMapper(
+		volumeToMount.VolumeSpec,
+		volumeToMount.Pod,
+		volume.VolumeOptions{})
+	if newMapperErr != nil {
+		eventErr, detailedErr := volumeToMount.GenerateError("MapVolume.NewBlockVolumeMapper initialization failed", newMapperErr)
+		og.recorder.Eventf(volumeToMount.Pod, v1.EventTypeWarning, kevents.FailedMapVolume, eventErr.Error())
+		return volumetypes.GeneratedOperations{}, detailedErr
+	}
+
+	// Get attacher, if possible
+	attachableVolumePlugin, _ :=
+		og.volumePluginMgr.FindAttachablePluginBySpec(volumeToMount.VolumeSpec)
+	var volumeAttacher volume.Attacher
+	if attachableVolumePlugin != nil {
+		volumeAttacher, _ = attachableVolumePlugin.NewAttacher()
+	}
+```
+
+创建 VolumeMapper 对象，根据 VolumeSpec 获取 AttachableVolumePlugin 对象，进而获取 attacher 对象。
+
+``` go
+	mapVolumeFunc := func() (simpleErr error, detailedErr error) {
+		var devicePath string
+		// Set up global map path under the given plugin directory using symbolic link
+		globalMapPath, err :=
+			blockVolumeMapper.GetGlobalMapPath(volumeToMount.VolumeSpec)
+		if err != nil {
+			// On failure, return error. Caller will log and retry.
+			return volumeToMount.GenerateError("MapVolume.GetGlobalMapPath failed", err)
+		}
+		if volumeAttacher != nil {
+			// Wait for attachable volumes to finish attaching
+			klog.Infof(volumeToMount.GenerateMsgDetailed("MapVolume.WaitForAttach entering", fmt.Sprintf("DevicePath %q", volumeToMount.DevicePath)))
+
+			devicePath, err = volumeAttacher.WaitForAttach(
+				volumeToMount.VolumeSpec, volumeToMount.DevicePath, volumeToMount.Pod, waitForAttachTimeout)
+			if err != nil {
+				// On failure, return error. Caller will log and retry.
+				return volumeToMount.GenerateError("MapVolume.WaitForAttach failed", err)
+			}
+
+			klog.Infof(volumeToMount.GenerateMsgDetailed("MapVolume.WaitForAttach succeeded", fmt.Sprintf("DevicePath %q", devicePath)))
+
+		}
+```
+
+接下来开始返回函数 mapVolumeFunc 的定义，在其中，首先或者全局挂载点的路径。如果 attacher 对象非空的话，则调用它的 `WaitForAttach()` 获取设备的路径。
+
+``` go
+		// Call SetUpDevice if blockVolumeMapper implements CustomBlockVolumeMapper
+		if customBlockVolumeMapper, ok := blockVolumeMapper.(volume.CustomBlockVolumeMapper); ok {
+			mapErr := customBlockVolumeMapper.SetUpDevice()
+			if mapErr != nil {
+				og.markDeviceErrorState(volumeToMount, devicePath, globalMapPath, mapErr, actualStateOfWorld)
+				// On failure, return error. Caller will log and retry.
+				return volumeToMount.GenerateError("MapVolume.SetUpDevice failed", mapErr)
+			}
+		}
+```
+
+如果 BlockVolumeMapper 对象实现了 CustomBlockVolumeMapper interface 的话，则调用它的 `SetUpDevice()`，这个主要作为 CSI 的一个 hook 点，详见 CSI 部分。
+
+``` go
+		// Update actual state of world to reflect volume is globally mounted
+		markedDevicePath := devicePath
+		markDeviceMappedErr := actualStateOfWorld.MarkDeviceAsMounted(
+			volumeToMount.VolumeName, markedDevicePath, globalMapPath)
+		if markDeviceMappedErr != nil {
+			// On failure, return error. Caller will log and retry.
+			return volumeToMount.GenerateError("MapVolume.MarkDeviceAsMounted failed", markDeviceMappedErr)
+		}
+```
+
+接下来，使用 `actualStateOfWorld.MarkDeviceAsMounted()` 将设备标记为全局挂载状态。
+
+> 为什么在这个时间点就可以认为存储设备完成了全局挂载？推测原因是这样的，对于 in-tree 类型的 Volume Plugin，一般会在 `volumeAttacher.WaitForAttach()` 中便完成了全局挂载目录的创建等准备工作。而接下来的 `ioutil.MapBlockVolume()` 则会中将存储设备以 bind 模式 mount 这个全局挂载目录下面的子文件上，然后创建从存储设备到 Pod 上局部挂载点的符号链接。
+
+``` go
+		markVolumeOpts := MarkVolumeOpts{
+			PodName:             volumeToMount.PodName,
+			PodUID:              volumeToMount.Pod.UID,
+			VolumeName:          volumeToMount.VolumeName,
+			BlockVolumeMapper:   blockVolumeMapper,
+			OuterVolumeSpecName: volumeToMount.OuterVolumeSpecName,
+			VolumeGidVolume:     volumeToMount.VolumeGidValue,
+			VolumeSpec:          volumeToMount.VolumeSpec,
+			VolumeMountState:    VolumeMounted,
+		}
+
+		// Call MapPodDevice if blockVolumeMapper implements CustomBlockVolumeMapper
+		if customBlockVolumeMapper, ok := blockVolumeMapper.(volume.CustomBlockVolumeMapper); ok {
+			// Execute driver specific map
+			pluginDevicePath, mapErr := customBlockVolumeMapper.MapPodDevice()
+            。。。
+
+			// if pluginDevicePath is provided, assume attacher may not provide device
+			// or attachment flow uses SetupDevice to get device path
+			if len(pluginDevicePath) != 0 {
+				devicePath = pluginDevicePath
+			}
+            ...
+		}
+```
+
+这段代码会检测 BlockVolumeMapper 是否实现了 CustomBlockVolumeMapper interface，如果是的话则调用它的 `MapPodDevice()` 将存储块设备映射到 Pod 中 。
+
+``` go
+		// When kubelet is containerized, devicePath may be a symlink at a place unavailable to
+		// kubelet, so evaluate it on the host and expect that it links to a device in /dev,
+		// which will be available to containerized kubelet. If still it does not exist,
+		// AttachFileDevice will fail. If kubelet is not containerized, eval it anyway.
+		kvh, ok := og.GetVolumePluginMgr().Host.(volume.KubeletVolumeHost)
+		if !ok {
+			return volumeToMount.GenerateError("MapVolume type assertion error", fmt.Errorf("volume host does not implement KubeletVolumeHost interface"))
+		}
+		hu := kvh.GetHostUtil()
+		devicePath, err = hu.EvalHostSymlinks(devicePath)
+		if err != nil {
+			return volumeToMount.GenerateError("MapVolume.EvalHostSymlinks failed", err)
+		}
+
+		// Update actual state of world with the devicePath again, if devicePath has changed from markedDevicePath
+		// TODO: This can be improved after #82492 is merged and ASW has state.
+		if markedDevicePath != devicePath {
+			markDeviceMappedErr := actualStateOfWorld.MarkDeviceAsMounted(
+				volumeToMount.VolumeName, devicePath, globalMapPath)
+			if markDeviceMappedErr != nil {
+				// On failure, return error. Caller will log and retry.
+				return volumeToMount.GenerateError("MapVolume.MarkDeviceAsMounted failed", markDeviceMappedErr)
+			}
+		}
+```
+
+在执行 mount 操作时，Kubelet 可能会以容器的方式在运行，因此需要获取底层存储设备在 host 上的真正路径，这个路径如果与 `Attacher.WaitForAttach()` 返回的不一致，则以前者为准，然后使用 `MarkDeviceAsMounted()` 更新 actualStateOfWorld 的状态。
+
+``` go
+		// Execute common map
+		volumeMapPath, volName := blockVolumeMapper.GetPodDeviceMapPath()
+		mapErr := ioutil.MapBlockVolume(og.blkUtil, devicePath, globalMapPath, volumeMapPath, volName, volumeToMount.Pod.UID)
+		if mapErr != nil {
+			// On failure, return error. Caller will log and retry.
+			return volumeToMount.GenerateError("MapVolume.MapBlockVolume failed", mapErr)
+		}
+
+		// Device mapping for global map path succeeded
+		simpleMsg, detailedMsg := volumeToMount.GenerateMsg("MapVolume.MapPodDevice succeeded", fmt.Sprintf("globalMapPath %q", globalMapPath))
+		verbosity := klog.Level(4)
+		og.recorder.Eventf(volumeToMount.Pod, v1.EventTypeNormal, kevents.SuccessfulMountVolume, simpleMsg)
+		klog.V(verbosity).Infof(detailedMsg)
+
+		// Device mapping for pod device map path succeeded
+		simpleMsg, detailedMsg = volumeToMount.GenerateMsg("MapVolume.MapPodDevice succeeded", fmt.Sprintf("volumeMapPath %q", volumeMapPath))
+		verbosity = klog.Level(1)
+		og.recorder.Eventf(volumeToMount.Pod, v1.EventTypeNormal, kevents.SuccessfulMountVolume, simpleMsg)
+		klog.V(verbosity).Infof(detailedMsg)
+```
+
+这里会通过 `ioutil.MapBlockVolume()` 真正执行存储设备的 mount 操作，如果执行成功，生成相应的事件。
+
+而在 `ioutil.MapBlockVolume()` 内部则会执行两次 mount 操作。
+
+``` go
+func MapBlockVolume(
+	blkUtil volumepathhandler.BlockVolumePathHandler,
+	devicePath,
+	globalMapPath,
+	podVolumeMapPath,
+	volumeMapName string,
+	podUID utypes.UID,
+) error {
+	// map devicePath to global node path as bind mount
+	mapErr := blkUtil.MapDevice(devicePath, globalMapPath, string(podUID), true /* bindMount */)
+	if mapErr != nil {
+		return fmt.Errorf("blkUtil.MapDevice failed. devicePath: %s, globalMapPath:%s, podUID: %s, bindMount: %v: %v",
+			devicePath, globalMapPath, string(podUID), true, mapErr)
+	}
+
+	// map devicePath to pod volume path
+	mapErr = blkUtil.MapDevice(devicePath, podVolumeMapPath, volumeMapName, false /* bindMount */)
+	if mapErr != nil {
+		return fmt.Errorf("blkUtil.MapDevice failed. devicePath: %s, podVolumeMapPath:%s, volumeMapName: %s, bindMount: %v: %v",
+			devicePath, podVolumeMapPath, volumeMapName, false, mapErr)
+	}
+
+	// Take file descriptor lock to keep a block device opened. Otherwise, there is a case
+	// that the block device is silently removed and attached another device with the same name.
+	// Container runtime can't handle this problem. To avoid unexpected condition fd lock
+	// for the block device is required.
+	_, mapErr = blkUtil.AttachFileDevice(filepath.Join(globalMapPath, string(podUID)))
+	if mapErr != nil {
+		return fmt.Errorf("blkUtil.AttachFileDevice failed. globalMapPath:%s, podUID: %s: %v",
+			globalMapPath, string(podUID), mapErr)
+	}
+
+	return nil
+}
+```
+
+第一次会将存储设备以 bind 模式 mount 到全局挂载点目录下的一个文件，这个文件以当前 Pod UID 命名。第二次会将设备以符号链接的形式链接到 Pod 对应的 Volume 路径上。
+
+``` go
+		resizeOptions := volume.NodeResizeOptions{
+			DevicePath:     devicePath,
+			CSIVolumePhase: volume.CSIVolumePublished,
+		}
+		_, resizeError := og.nodeExpandVolume(volumeToMount, resizeOptions)
+		if resizeError != nil {
+			klog.Errorf("MapVolume.NodeExpandVolume failed with %v", resizeError)
+			return volumeToMount.GenerateError("MapVolume.MarkVolumeAsMounted failed while expanding volume", resizeError)
+		}
+
+		markVolMountedErr := actualStateOfWorld.MarkVolumeAsMounted(markVolumeOpts)
+		if markVolMountedErr != nil {
+			// On failure, return error. Caller will log and retry.
+			return volumeToMount.GenerateError("MapVolume.MarkVolumeAsMounted failed", markVolMountedErr)
+		}
+
+		return nil, nil
+	}
+```
+
+所有 mount 操作全部执行完成之后，会检测是否需要做 expand 操作，如果需要的话则会调用 `nodeExpandVolume()` 执行。最后执行 `MarkVolumeAsMounted()` 更新 actualStateOfWorld。
+
+``` go
+	eventRecorderFunc := func(err *error) {
+		if *err != nil {
+			og.recorder.Eventf(volumeToMount.Pod, v1.EventTypeWarning, kevents.FailedMapVolume, (*err).Error())
+		}
+	}
+
+	return volumetypes.GeneratedOperations{
+		OperationName:     "map_volume",
+		OperationFunc:     mapVolumeFunc,
+		EventRecorderFunc: eventRecorderFunc,
+		CompleteFunc:      util.OperationCompleteHook(util.GetFullQualifiedPluginNameForVolume(blockVolumePlugin.GetPluginName(), volumeToMount.VolumeSpec), "map_volume"),
+	}, nil
+}
+```
+
+整个函数返回 GeneratedOperations 对象，其中包含有刚才的 mapVolumeFunc 回调函数。
