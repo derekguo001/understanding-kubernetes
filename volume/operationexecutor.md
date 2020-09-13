@@ -770,3 +770,472 @@ func MapBlockVolume(
 ```
 
 整个函数返回 GeneratedOperations 对象，其中包含有刚才的 mapVolumeFunc 回调函数。
+
+## UnmountVolume() ##
+
+`UnmountVolume()` 会将存储设备从 Pod 关联的 Volume 局部挂载点上执行 umount 操作。
+
+``` go
+func (oe *operationExecutor) UnmountVolume(
+	volumeToUnmount MountedVolume,
+	actualStateOfWorld ActualStateOfWorldMounterUpdater,
+	podsDir string) error {
+	fsVolume, err := util.CheckVolumeModeFilesystem(volumeToUnmount.VolumeSpec)
+	if err != nil {
+		return err
+	}
+	var generatedOperations volumetypes.GeneratedOperations
+	if fsVolume {
+		// Filesystem volume case
+		// Unmount a volume if a volume is mounted
+		generatedOperations, err = oe.operationGenerator.GenerateUnmountVolumeFunc(
+			volumeToUnmount, actualStateOfWorld, podsDir)
+	} else {
+		// Block volume case
+		// Unmap a volume if a volume is mapped
+		generatedOperations, err = oe.operationGenerator.GenerateUnmapVolumeFunc(
+			volumeToUnmount, actualStateOfWorld)
+	}
+	if err != nil {
+		return err
+	}
+	// All volume plugins can execute unmount/unmap for multiple pods referencing the
+	// same volume in parallel
+	podName := volumetypes.UniquePodName(volumeToUnmount.PodUID)
+
+	return oe.pendingOperations.Run(
+		volumeToUnmount.VolumeName, podName, "" /* nodeName */, generatedOperations)
+}
+```
+
+类似于 `MountVolume()`，这里也会根据存储设备是作为文件系统使用还是作为块设备使用这两种不同的使用方式生成不同的函数：`GenerateUnmountVolumeFunc()` 和 `GenerateUnmapVolumeFunc()`，下面分别进行分析。
+
+### GenerateUnmountVolumeFunc() ###
+
+``` go
+func (og *operationGenerator) GenerateUnmountVolumeFunc(
+	volumeToUnmount MountedVolume,
+	actualStateOfWorld ActualStateOfWorldMounterUpdater,
+	podsDir string) (volumetypes.GeneratedOperations, error) {
+	// Get mountable plugin
+	volumePlugin, err := og.volumePluginMgr.FindPluginByName(volumeToUnmount.PluginName)
+	if err != nil || volumePlugin == nil {
+		return volumetypes.GeneratedOperations{}, volumeToUnmount.GenerateErrorDetailed("UnmountVolume.FindPluginByName failed", err)
+	}
+	volumeUnmounter, newUnmounterErr := volumePlugin.NewUnmounter(
+		volumeToUnmount.InnerVolumeSpecName, volumeToUnmount.PodUID)
+	if newUnmounterErr != nil {
+		return volumetypes.GeneratedOperations{}, volumeToUnmount.GenerateErrorDetailed("UnmountVolume.NewUnmounter failed", newUnmounterErr)
+	}
+```
+
+首先根据 PluginName 获取 Plugin 对象，进而获取 Umounter 对象。
+
+``` go
+	unmountVolumeFunc := func() (error, error) {
+		subpather := og.volumePluginMgr.Host.GetSubpather()
+
+		// Remove all bind-mounts for subPaths
+		podDir := filepath.Join(podsDir, string(volumeToUnmount.PodUID))
+		if err := subpather.CleanSubPaths(podDir, volumeToUnmount.InnerVolumeSpecName); err != nil {
+			return volumeToUnmount.GenerateError("error cleaning subPath mounts", err)
+		}
+```
+
+然后删除所有的 subPath。关于 subPath 可参见 [Using subPath
+](https://kubernetes.io/docs/concepts/storage/volumes/#using-subpath) 。
+
+```
+		// Execute unmount
+		unmountErr := volumeUnmounter.TearDown()
+		if unmountErr != nil {
+			// On failure, return error. Caller will log and retry.
+			return volumeToUnmount.GenerateError("UnmountVolume.TearDown failed", unmountErr)
+		}
+
+		klog.Infof(
+			"UnmountVolume.TearDown succeeded for volume %q (OuterVolumeSpecName: %q) pod %q (UID: %q). InnerVolumeSpecName %q. PluginName %q, VolumeGidValue %q",
+			volumeToUnmount.VolumeName,
+			volumeToUnmount.OuterVolumeSpecName,
+			volumeToUnmount.PodName,
+			volumeToUnmount.PodUID,
+			volumeToUnmount.InnerVolumeSpecName,
+			volumeToUnmount.PluginName,
+			volumeToUnmount.VolumeGidValue)
+
+		// Update actual state of world
+		markVolMountedErr := actualStateOfWorld.MarkVolumeAsUnmounted(
+			volumeToUnmount.PodName, volumeToUnmount.VolumeName)
+		if markVolMountedErr != nil {
+			// On failure, just log and exit
+			klog.Errorf(volumeToUnmount.GenerateErrorDetailed("UnmountVolume.MarkVolumeAsUnmounted failed", markVolMountedErr).Error())
+		}
+
+		return nil, nil
+	}
+
+	return volumetypes.GeneratedOperations{
+		OperationName:     "volume_unmount",
+		OperationFunc:     unmountVolumeFunc,
+		CompleteFunc:      util.OperationCompleteHook(util.GetFullQualifiedPluginNameForVolume(volumePlugin.GetPluginName(), volumeToUnmount.VolumeSpec), "volume_unmount"),
+		EventRecorderFunc: nil, // nil because we do not want to generate event on error
+	}, nil
+}
+```
+
+接着，调用 Umounter 的 `TearDown()` 执行真正的 umount 操作，这个函数由 Volume Plugin 自己实现，内部逻辑是将存储设备在 Pod 关联的 Volume 的路径上执行 umount 操作。执行成功后，使用 `MarkVolumeAsUnmounted()` 更新 actualStateOfWorld，并返回。
+
+### GenerateUnmapVolumeFunc() ###
+
+``` go
+func (og *operationGenerator) GenerateUnmapVolumeFunc(
+	volumeToUnmount MountedVolume,
+	actualStateOfWorld ActualStateOfWorldMounterUpdater) (volumetypes.GeneratedOperations, error) {
+
+	// Get block volume unmapper plugin
+	blockVolumePlugin, err :=
+		og.volumePluginMgr.FindMapperPluginByName(volumeToUnmount.PluginName)
+	if err != nil {
+		return volumetypes.GeneratedOperations{}, volumeToUnmount.GenerateErrorDetailed("UnmapVolume.FindMapperPluginByName failed", err)
+	}
+	if blockVolumePlugin == nil {
+		return volumetypes.GeneratedOperations{}, volumeToUnmount.GenerateErrorDetailed("UnmapVolume.FindMapperPluginByName failed to find BlockVolumeMapper plugin. Volume plugin is nil.", nil)
+	}
+	blockVolumeUnmapper, newUnmapperErr := blockVolumePlugin.NewBlockVolumeUnmapper(
+		volumeToUnmount.InnerVolumeSpecName, volumeToUnmount.PodUID)
+	if newUnmapperErr != nil {
+		return volumetypes.GeneratedOperations{}, volumeToUnmount.GenerateErrorDetailed("UnmapVolume.NewUnmapper failed", newUnmapperErr)
+	}
+```
+
+首先根据 PluginName 获取 Plugin 对象，进而获取 BlockVolumeUnmapper 对象。
+
+``` go
+	unmapVolumeFunc := func() (error, error) {
+		// pods/{podUid}/volumeDevices/{escapeQualifiedPluginName}/{volumeName}
+		podDeviceUnmapPath, volName := blockVolumeUnmapper.GetPodDeviceMapPath()
+		// plugins/kubernetes.io/{PluginName}/volumeDevices/{volumePluginDependentPath}/{podUID}
+		globalUnmapPath := volumeToUnmount.DeviceMountPath
+
+		// Execute common unmap
+		unmapErr := ioutil.UnmapBlockVolume(og.blkUtil, globalUnmapPath, podDeviceUnmapPath, volName, volumeToUnmount.PodUID)
+		if unmapErr != nil {
+			// On failure, return error. Caller will log and retry.
+			return volumeToUnmount.GenerateError("UnmapVolume.UnmapBlockVolume failed", unmapErr)
+		}
+```
+
+调用 `ioutil.UnmapBlockVolume()` 执行块设备的 umount 操作。在其内部会先删除文件锁，然后将块设备从 Pod 关联的 Volume 局部挂载点上执行 umount 操作，然后从全局挂载点再一次执行 umount 操作。
+
+``` go
+		// Call UnmapPodDevice if blockVolumeUnmapper implements CustomBlockVolumeUnmapper
+		if customBlockVolumeUnmapper, ok := blockVolumeUnmapper.(volume.CustomBlockVolumeUnmapper); ok {
+			// Execute plugin specific unmap
+			unmapErr = customBlockVolumeUnmapper.UnmapPodDevice()
+			if unmapErr != nil {
+				// On failure, return error. Caller will log and retry.
+				return volumeToUnmount.GenerateError("UnmapVolume.UnmapPodDevice failed", unmapErr)
+			}
+		}
+```
+
+如果 BlockVolumeUnmapper 对象实现了 CustomBlockVolumeUnmapper interface，则调用 `UnmapPodDevice()`，主要用于 CSI。
+
+``` go
+		klog.Infof(
+			"UnmapVolume succeeded for volume %q (OuterVolumeSpecName: %q) pod %q (UID: %q). InnerVolumeSpecName %q. PluginName %q, VolumeGidValue %q",
+			volumeToUnmount.VolumeName,
+			volumeToUnmount.OuterVolumeSpecName,
+			volumeToUnmount.PodName,
+			volumeToUnmount.PodUID,
+			volumeToUnmount.InnerVolumeSpecName,
+			volumeToUnmount.PluginName,
+			volumeToUnmount.VolumeGidValue)
+
+		// Update actual state of world
+		markVolUnmountedErr := actualStateOfWorld.MarkVolumeAsUnmounted(
+			volumeToUnmount.PodName, volumeToUnmount.VolumeName)
+		if markVolUnmountedErr != nil {
+			// On failure, just log and exit
+			klog.Errorf(volumeToUnmount.GenerateErrorDetailed("UnmapVolume.MarkVolumeAsUnmounted failed", markVolUnmountedErr).Error())
+		}
+
+		return nil, nil
+	}
+
+	return volumetypes.GeneratedOperations{
+		OperationName:     "unmap_volume",
+		OperationFunc:     unmapVolumeFunc,
+		CompleteFunc:      util.OperationCompleteHook(util.GetFullQualifiedPluginNameForVolume(blockVolumePlugin.GetPluginName(), volumeToUnmount.VolumeSpec), "unmap_volume"),
+		EventRecorderFunc: nil, // nil because we do not want to generate event on error
+	}, nil
+}
+```
+
+执行成功后，使用 `MarkVolumeAsUnmounted()` 更新 actualStateOfWorld，并返回。
+
+## UnmountDevice() ##
+
+`UnmountDevice()` 将存储设备从节点上的全局挂载点执行 umount 操作。
+
+``` go
+func (oe *operationExecutor) UnmountDevice(
+	deviceToDetach AttachedVolume,
+	actualStateOfWorld ActualStateOfWorldMounterUpdater,
+	hostutil hostutil.HostUtils) error {
+	fsVolume, err := util.CheckVolumeModeFilesystem(deviceToDetach.VolumeSpec)
+	if err != nil {
+		return err
+	}
+	var generatedOperations volumetypes.GeneratedOperations
+	if fsVolume {
+		// Filesystem volume case
+		// Unmount and detach a device if a volume isn't referenced
+		generatedOperations, err = oe.operationGenerator.GenerateUnmountDeviceFunc(
+			deviceToDetach, actualStateOfWorld, hostutil)
+	} else {
+		// Block volume case
+		// Detach a device and remove loopback if a volume isn't referenced
+		generatedOperations, err = oe.operationGenerator.GenerateUnmapDeviceFunc(
+			deviceToDetach, actualStateOfWorld, hostutil)
+	}
+	if err != nil {
+		return err
+	}
+	// Avoid executing unmount/unmap device from multiple pods referencing
+	// the same volume in parallel
+	podName := nestedpendingoperations.EmptyUniquePodName
+
+	return oe.pendingOperations.Run(
+		deviceToDetach.VolumeName, podName, "" /* nodeName */, generatedOperations)
+}
+```
+
+会根据存储设备是作为文件系统使用还是作为块设备使用这两种不同的使用方式生成不同的函数：`GenerateUnmountDeviceFunc()` 和 `GenerateUnmapDeviceFunc()`，下面分别进行分析。
+
+### GenerateUnmountDeviceFunc() ###
+
+``` go
+func (og *operationGenerator) GenerateUnmountDeviceFunc(
+	deviceToDetach AttachedVolume,
+	actualStateOfWorld ActualStateOfWorldMounterUpdater,
+	hostutil hostutil.HostUtils) (volumetypes.GeneratedOperations, error) {
+	// Get DeviceMounter plugin
+	deviceMountableVolumePlugin, err :=
+		og.volumePluginMgr.FindDeviceMountablePluginByName(deviceToDetach.PluginName)
+	if err != nil || deviceMountableVolumePlugin == nil {
+		return volumetypes.GeneratedOperations{}, deviceToDetach.GenerateErrorDetailed("UnmountDevice.FindDeviceMountablePluginByName failed", err)
+	}
+
+	volumeDeviceUmounter, err := deviceMountableVolumePlugin.NewDeviceUnmounter()
+	if err != nil {
+		return volumetypes.GeneratedOperations{}, deviceToDetach.GenerateErrorDetailed("UnmountDevice.NewDeviceUmounter failed", err)
+	}
+
+	volumeDeviceMounter, err := deviceMountableVolumePlugin.NewDeviceMounter()
+	if err != nil {
+		return volumetypes.GeneratedOperations{}, deviceToDetach.GenerateErrorDetailed("UnmountDevice.NewDeviceMounter failed", err)
+	}
+```
+
+首先根据 PluginName 获取 DeviceMountableVolumePlugin 对象，进而获取 DeviceUnmounter 对象。
+
+``` go
+	unmountDeviceFunc := func() (error, error) {
+		//deviceMountPath := deviceToDetach.DeviceMountPath
+		deviceMountPath, err :=
+			volumeDeviceMounter.GetDeviceMountPath(deviceToDetach.VolumeSpec)
+		if err != nil {
+			// On failure, return error. Caller will log and retry.
+			return deviceToDetach.GenerateError("GetDeviceMountPath failed", err)
+		}
+		refs, err := deviceMountableVolumePlugin.GetDeviceMountRefs(deviceMountPath)
+
+		if err != nil || util.HasMountRefs(deviceMountPath, refs) {
+			if err == nil {
+				err = fmt.Errorf("The device mount path %q is still mounted by other references %v", deviceMountPath, refs)
+			}
+			return deviceToDetach.GenerateError("GetDeviceMountRefs check failed", err)
+		}
+```
+
+接着开始返回函数的定义，在函数中，首先确保存储设备没有再被引用。这里的 `GetDeviceMountRefs()` 参数是全局挂载路径，这个函数会根据这个全局挂载路径找到对应的存储设备，然后再查找此存储设备有没有其它的挂载点。
+
+``` go
+		// Execute unmount
+		unmountDeviceErr := volumeDeviceUmounter.UnmountDevice(deviceMountPath)
+		if unmountDeviceErr != nil {
+			// On failure, return error. Caller will log and retry.
+			return deviceToDetach.GenerateError("UnmountDevice failed", unmountDeviceErr)
+		}
+```
+
+然后使用 `UnmountDevice()` 进行 umount 操作，这个函数由 Volume Plugin 自己定义。作用是将存储设备从节点的全局挂载点上 umount。
+
+``` go
+		// Before logging that UnmountDevice succeeded and moving on,
+		// use hostutil.PathIsDevice to check if the path is a device,
+		// if so use hostutil.DeviceOpened to check if the device is in use anywhere
+		// else on the system. Retry if it returns true.
+		deviceOpened, deviceOpenedErr := isDeviceOpened(deviceToDetach, hostutil)
+		if deviceOpenedErr != nil {
+			return nil, deviceOpenedErr
+		}
+		// The device is still in use elsewhere. Caller will log and retry.
+		if deviceOpened {
+			return deviceToDetach.GenerateError(
+				"UnmountDevice failed",
+				goerrors.New("the device is in use when it was no longer expected to be in use"))
+		}
+```
+
+再一次检测存储设备是否还被系统上的其它地方使用。
+
+``` go
+		klog.Infof(deviceToDetach.GenerateMsg("UnmountDevice succeeded", ""))
+
+		// Update actual state of world
+		markDeviceUnmountedErr := actualStateOfWorld.MarkDeviceAsUnmounted(
+			deviceToDetach.VolumeName)
+		if markDeviceUnmountedErr != nil {
+			// On failure, return error. Caller will log and retry.
+			return deviceToDetach.GenerateError("MarkDeviceAsUnmounted failed", markDeviceUnmountedErr)
+		}
+
+		return nil, nil
+	}
+
+	return volumetypes.GeneratedOperations{
+		OperationName:     "unmount_device",
+		OperationFunc:     unmountDeviceFunc,
+		CompleteFunc:      util.OperationCompleteHook(util.GetFullQualifiedPluginNameForVolume(deviceMountableVolumePlugin.GetPluginName(), deviceToDetach.VolumeSpec), "unmount_device"),
+		EventRecorderFunc: nil, // nil because we do not want to generate event on error
+	}, nil
+}
+```
+
+使用 `MarkDeviceAsUnmounted()` 更新 actualStateOfWorld 状态，并返回。
+
+### GenerateUnmapDeviceFunc() ###
+
+``` go
+func (og *operationGenerator) GenerateUnmapDeviceFunc(
+	deviceToDetach AttachedVolume,
+	actualStateOfWorld ActualStateOfWorldMounterUpdater,
+	hostutil hostutil.HostUtils) (volumetypes.GeneratedOperations, error) {
+
+	blockVolumePlugin, err :=
+		og.volumePluginMgr.FindMapperPluginByName(deviceToDetach.PluginName)
+	if err != nil {
+		return volumetypes.GeneratedOperations{}, deviceToDetach.GenerateErrorDetailed("UnmapDevice.FindMapperPluginByName failed", err)
+	}
+
+	if blockVolumePlugin == nil {
+		return volumetypes.GeneratedOperations{}, deviceToDetach.GenerateErrorDetailed("UnmapDevice.FindMapperPluginByName failed to find BlockVolumeMapper plugin. Volume plugin is nil.", nil)
+	}
+
+	blockVolumeUnmapper, newUnmapperErr := blockVolumePlugin.NewBlockVolumeUnmapper(
+		deviceToDetach.VolumeSpec.Name(),
+		"" /* podUID */)
+	if newUnmapperErr != nil {
+		return volumetypes.GeneratedOperations{}, deviceToDetach.GenerateErrorDetailed("UnmapDevice.NewUnmapper failed", newUnmapperErr)
+	}
+```
+
+首先根据 PluginName 获取 BlockVolumePlugin 对象，进而获取 BlockVolumeUnmapper 对象。
+
+``` go
+	unmapDeviceFunc := func() (error, error) {
+		// Search under globalMapPath dir if all symbolic links from pods have been removed already.
+		// If symbolic links are there, pods may still refer the volume.
+		globalMapPath := deviceToDetach.DeviceMountPath
+		refs, err := og.blkUtil.GetDeviceBindMountRefs(deviceToDetach.DevicePath, globalMapPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// Looks like SetupDevice did not complete. Fall through to TearDownDevice and mark the device as unmounted.
+				refs = nil
+			} else {
+				return deviceToDetach.GenerateError("UnmapDevice.GetDeviceBindMountRefs check failed", err)
+			}
+		}
+		if len(refs) > 0 {
+			err = fmt.Errorf("The device %q is still referenced from other Pods %v", globalMapPath, refs)
+			return deviceToDetach.GenerateError("UnmapDevice failed", err)
+		}
+```
+
+接着开始返回函数的定义，在函数中，首先确保存储设备没有再被引用。
+
+``` go
+		// Call TearDownDevice if blockVolumeUnmapper implements CustomBlockVolumeUnmapper
+		if customBlockVolumeUnmapper, ok := blockVolumeUnmapper.(volume.CustomBlockVolumeUnmapper); ok {
+			// Execute tear down device
+			unmapErr := customBlockVolumeUnmapper.TearDownDevice(globalMapPath, deviceToDetach.DevicePath)
+			if unmapErr != nil {
+				// On failure, return error. Caller will log and retry.
+				return deviceToDetach.GenerateError("UnmapDevice.TearDownDevice failed", unmapErr)
+			}
+		}
+```
+
+如果 BlockVolumeUnmapper 对象实现了 CustomBlockVolumeUnmapper interface，则调用 `TearDownDevice()`，主要用于 CSI。
+
+``` go
+		// Plugin finished TearDownDevice(). Now globalMapPath dir and plugin's stored data
+		// on the dir are unnecessary, clean up it.
+		removeMapPathErr := og.blkUtil.RemoveMapPath(globalMapPath)
+		if removeMapPathErr != nil {
+			// On failure, return error. Caller will log and retry.
+			return deviceToDetach.GenerateError("UnmapDevice.RemoveMapPath failed", removeMapPathErr)
+		}
+```
+
+删除全局挂载点目录以及其下面的的元数据等文件。
+
+``` go
+		// Before logging that UnmapDevice succeeded and moving on,
+		// use hostutil.PathIsDevice to check if the path is a device,
+		// if so use hostutil.DeviceOpened to check if the device is in use anywhere
+		// else on the system. Retry if it returns true.
+		deviceOpened, deviceOpenedErr := isDeviceOpened(deviceToDetach, hostutil)
+		if deviceOpenedErr != nil {
+			return nil, deviceOpenedErr
+		}
+		// The device is still in use elsewhere. Caller will log and retry.
+		if deviceOpened {
+			return deviceToDetach.GenerateError(
+				"UnmapDevice failed",
+				fmt.Errorf("the device is in use when it was no longer expected to be in use"))
+		}
+
+		klog.Infof(deviceToDetach.GenerateMsgDetailed("UnmapDevice succeeded", ""))
+```
+
+再一次检测存储设备是否还被系统上的其它地方使用。
+
+``` go
+		// Update actual state of world
+		markDeviceUnmountedErr := actualStateOfWorld.MarkDeviceAsUnmounted(
+			deviceToDetach.VolumeName)
+		if markDeviceUnmountedErr != nil {
+			// On failure, return error. Caller will log and retry.
+			return deviceToDetach.GenerateError("MarkDeviceAsUnmounted failed", markDeviceUnmountedErr)
+		}
+
+		return nil, nil
+	}
+
+	return volumetypes.GeneratedOperations{
+		OperationName:     "unmap_device",
+		OperationFunc:     unmapDeviceFunc,
+		CompleteFunc:      util.OperationCompleteHook(util.GetFullQualifiedPluginNameForVolume(blockVolumePlugin.GetPluginName(), deviceToDetach.VolumeSpec), "unmap_device"),
+		EventRecorderFunc: nil, // nil because we do not want to generate event on error
+	}, nil
+}
+```
+
+使用 `MarkDeviceAsUnmounted()` 更新 actualStateOfWorld 状态，并返回。
+
+## 参考 ##
+
+- [Using subPath](https://kubernetes.io/docs/concepts/storage/volumes/#using-subpath)
