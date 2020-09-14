@@ -19,11 +19,11 @@ Kube Controller Manager 和 Kubelet 在执行 operationExecutor 对象的具体�
 
 operationExecutor 核心函数有 5 个：
 
-- **AttachVolume()**
-- **DetachVolume()**
-- **MountVolume()**
-- **UnmountVolume()**
-- **UnmountDevice()**
+- **[AttachVolume()](#AttachVolume())**
+- **[DetachVolume()](#DetachVolume())**
+- **[MountVolume()](#MountVolume())**
+- **[UnmountVolume()](#UnmountVolume())**
+- **[UnmountDevice](#UnmountDevice())**
 
 需要特别说明的是最后一个，`UnmountDevice()` 是指将存储设备从节点上的全局挂载点执行 umount 操作。关于全局挂载点的说明，可参见 [关于 mount 和 umount 操作](mount-umount.md)。还有一点就是为什么这里只有 `UnmountDevice()` 操作，而没有对应的 `MountDevice()`，这是因为将存储设备 mount 到节点上的全局挂载点这个操作是在 `MountVolume()` 中实现的。
 
