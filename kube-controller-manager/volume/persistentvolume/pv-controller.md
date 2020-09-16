@@ -3,9 +3,15 @@
 目录
 
 - [概述](#概述)
-- [入口函数 `volumeWorker()`](#入口函数-`volumeWorker()`)
-- [核心实现 `syncVolume()`](#核心实现-`syncVolume()`)
-  - [情景一、对应的 PVC 已被删除并对 PV 进行回收](#情景一、对应的-PVC-已被删除并对-PV-进行回收)
+- [入口函数 `volumeWorker()`](#入口函数-volumeWorker())
+- [核心实现 `syncVolume()`](#核心实现-syncVolume())
+  - [PV 未与 PVC 绑定](#PV-未与-PVC-绑定)
+  - [PV 已经与 PVC 绑定](#PV-已经与-PVC-绑定)
+    - [情景一、对应的 PVC 已被删除](#情景一、对应的-PVC-已被删除)
+    - [情景二、绑定完成一半](#情景二、绑定完成一半)
+    - [情景三、已正确绑定](#情景三、已正确绑定)
+    - [情景四、发生了错误的绑定](#情景四、发生了错误的绑定)
+- [参考](#参考)
 
 ## 概述 ##
 
@@ -24,7 +30,16 @@ func (ctrl *PersistentVolumeController) Run(stopCh <-chan struct{}) {
 
 在 `PersistentVolumeController` 启动后，会启动一个 goroutine `volumeWorker` 处理 PV 对象。这个可以看做是 PV Controller 的入口函数。它每秒执行一次。
 
-## 入口函数 `volumeWorker()` ##
+PV Controller 完成的函数调用栈如下所示：
+
+``` go
+volumeWorker()
+  updateVolume()
+    syncVolume()
+  deleteVolume()
+```
+
+## 入口函数 volumeWorker() ##
 
 ``` go
 func (ctrl *PersistentVolumeController) volumeWorker() {
@@ -66,7 +81,7 @@ func (q *Type) Get() (item interface{}, shutdown bool) {
 }
 ```
 
-如果队列为空，则 `volumeWorker()` 会直接返回，注意这里不会阻塞。
+如果队列为空，则 `volumeWorker()` 会阻塞，直到有数据或者 shutdown 为止。
 
 取到 PV 对象后，`volumeWorker()` 会根据 PersistentVolumeController.volumeLister 中还有没有这个对象，再分别进行处理，代码如下：
 
@@ -165,13 +180,25 @@ func (ctrl *PersistentVolumeController) updateVolume(volume *v1.PersistentVolume
 
 它首先更新本地的缓存，然后调用 `ctrl.syncVolume(volume)` 对 PV 进行处理，这个函数是 PV Controller 的核心实现，PV 处理过程中主要的逻辑都在其中。
 
-## 核心实现 `syncVolume()` ##
+## 核心实现 syncVolume() ##
 
 ``` go
 func (ctrl *PersistentVolumeController) syncVolume(volume *v1.PersistentVolume) error {
     ...
 	newVolume, err := ctrl.updateVolumeMigrationAnnotations(volume)
     ...
+```
+
+这个函数首先更新 PV 对象的 Annotation，这个具体与 CSI 关系比较密切，在相关章节中再详细分析。
+
+接下来分为两种情况：
+
+1. PV 未与 PVC 绑定
+2. PV 已经与 PVC 绑定
+
+### PV 未与 PVC 绑定 ###
+
+``` go
 	volume = newVolume
 
 	if volume.Spec.ClaimRef == nil {
@@ -186,8 +213,6 @@ func (ctrl *PersistentVolumeController) syncVolume(volume *v1.PersistentVolume) 
 	}
 }
 ```
-
-这个函数首先更新 PV 对象的 Annotation，这个具体与 CSI 关系比较密切，在相关章节中再详细分析。
 
 接着根据当前 PV 是否有绑定的 PVC 再分别进行处理，如果没有的话，则简单地将其状态更新为 `Available` 状态，然后立刻返回，整个处理流程结束。
 
@@ -236,6 +261,8 @@ spec:
 
 这个时候由于还没有完成绑定，因此对应的 PVC 的 UID 为空，这种情况下也会简单地将 PV 状态更新为 `Available` 状态，然后立刻返回。
 
+### PV 已经与 PVC 绑定 ###
+
 接下来的逻辑都是 `volume.Spec.ClaimRef` 不为空的情况下，即已经完成了从 PV 到 PVC 的绑定。
 
 ``` go
@@ -268,7 +295,7 @@ spec:
 3. 已正确绑定。
 4. 发生了错误的绑定，即对应的 PVC 的 `Spec.VolumeName` 为与当前 PV 对象不符。
 
-### 情景一、对应的 PVC 已被删除并对 PV 进行回收 ###
+#### 情景一、对应的 PVC 已被删除 ####
 
 这种情况是根据当前 PV 的 `Spec.ClaimRef` 找不到对应的 PVC 对象，表明与当前 PV 绑定的 PVC 对象已被删除。
 
@@ -366,7 +393,7 @@ PV 的回收策略包括三种：`Retain`、`Recycle` 或者 `Delete`。
 
 下面来详细看一下后两种情况，即清理 PV 和删除 PV 的操作。
 
-#### PV 清理操作 ####
+##### PV 清理操作 #####
 
 当 PV 回收策略是 `Recycle`的情况下，会执行一个异步的操作去清理 PV 中的数据，然后将 PV 更新为 `Available` 状态，以便后续与其它 PVC 重新绑定和使用。具体的逻辑在 `recycleVolumeOperation()` 中。
 
@@ -528,7 +555,7 @@ func (ctrl *PersistentVolumeController) unbindVolume(volume *v1.PersistentVolume
 
 接着更新本地的 PV 魂村，然后将 PV 更新为 `Available` 状态。
 
-#### PV 删除操作 ####
+##### PV 删除操作 #####
 
 当 PV 回收策略是 `Delete`的情况下，会执行一个异步的操作去删除 PV 以及对应的底层存储。具体的逻辑在 `deleteVolumeOperation()` 中。
 
@@ -681,3 +708,116 @@ type Deleter interface {
 然后指定 `Deleter.Delete()` 进行删除底层的存储。这个函数需要由 Volume Plugin 自己实现。
 
 这里在删除前会执行相关的 hook 调用，主要是与 Metrics 相关。
+
+#### 情景二、绑定完成一半 ####
+
+绑定进行了一半，即 PV 的 `Spec.ClaimRef` 已经被正确设置，但对应的 PVC 的 `Spec.VolumeName` 为空。表明从 PV 到 PVC 的绑定已经完成，但是从 PVC 到 PV 的绑定还未完成。
+
+``` go
+		} else if claim.Spec.VolumeName == "" {
+			if pvutil.CheckVolumeModeMismatches(&claim.Spec, &volume.Spec) {
+				// Binding for the volume won't be called in syncUnboundClaim,
+				// because findBestMatchForClaim won't return the volume due to volumeMode mismatch.
+				volumeMsg := fmt.Sprintf("Cannot bind PersistentVolume to requested PersistentVolumeClaim %q due to incompatible volumeMode.", claim.Name)
+				ctrl.eventRecorder.Event(volume, v1.EventTypeWarning, events.VolumeMismatch, volumeMsg)
+				claimMsg := fmt.Sprintf("Cannot bind PersistentVolume %q to requested PersistentVolumeClaim due to incompatible volumeMode.", volume.Name)
+				ctrl.eventRecorder.Event(claim, v1.EventTypeWarning, events.VolumeMismatch, claimMsg)
+				// Skipping syncClaim
+				return nil
+			}
+```
+
+首先进行模式检测，比较 PV 和 PVC 是否都是作为文件系统或者块设备使用，如果不一致，则无法对其进行绑定，直接返回。
+
+``` go
+            ...
+
+			ctrl.claimQueue.Add(claimToClaimKey(claim))
+			return nil
+		} else if claim.Spec.VolumeName == volume.Name {
+```
+
+接着，将 PVC 加入到 PVC 队列中，以便完成 PVC 到 PV 的绑定操作。
+
+#### 情景三、已正确绑定 ####
+
+这种情况，说明从 PV 到 PVC 以及从 PVC 到 PV 的绑定都已经完成，只需要将 PV 状态更新为 `Bound`。
+
+``` go
+			// Volume is bound to a claim properly, update status if necessary
+			klog.V(4).Infof("synchronizing PersistentVolume[%s]: all is bound", volume.Name)
+			if _, err = ctrl.updateVolumePhase(volume, v1.VolumeBound, ""); err != nil {
+				// Nothing was saved; we will fall back into the same
+				// condition in the next call to this method
+				return err
+			}
+			return nil
+```
+
+#### 情景四、发生了错误的绑定 ####
+
+发生了错误的绑定，即 PV 对应的 PVC 的 `Spec.VolumeName` 为与当前 PV 对象不符。
+
+``` go
+		} else {
+			// Volume is bound to a claim, but the claim is bound elsewhere
+			if metav1.HasAnnotation(volume.ObjectMeta, pvutil.AnnDynamicallyProvisioned) && volume.Spec.PersistentVolumeReclaimPolicy == v1.PersistentVolumeReclaimDelete {
+				// This volume was dynamically provisioned for this claim. The
+				// claim got bound elsewhere, and thus this volume is not
+				// needed. Delete it.
+				// Mark the volume as Released for external deleters and to let
+				// the user know. Don't overwrite existing Failed status!
+				if volume.Status.Phase != v1.VolumeReleased && volume.Status.Phase != v1.VolumeFailed {
+					// Also, log this only once:
+					klog.V(2).Infof("dynamically volume %q is released and it will be deleted", volume.Name)
+					if volume, err = ctrl.updateVolumePhase(volume, v1.VolumeReleased, ""); err != nil {
+						// Nothing was saved; we will fall back into the same condition
+						// in the next call to this method
+						return err
+					}
+				}
+				if err = ctrl.reclaimVolume(volume); err != nil {
+					// Deletion failed, we will fall back into the same condition
+					// in the next call to this method
+					return err
+				}
+				return nil
+			} else {
+```
+
+如果 PV 是动态管理且 PV 回收策略是 `Delete`，说明当前 PV 绑定已经不再需要了，就通过 `reclaimVolume()` 执行 PV 的删除操作。关于 `reclaimVolume()` 请参见 [情景一、对应的 PVC 已被删除](#情景一、对应的-PVC-已被删除) 中的分析。
+
+<TODO>哪种操作可以导致这种情况？对于非 `Delete` 回收策略的 PV 如何处理？</TODO>
+
+``` go
+				// Volume is bound to a claim, but the claim is bound elsewhere
+				// and it's not dynamically provisioned.
+				if metav1.HasAnnotation(volume.ObjectMeta, pvutil.AnnBoundByController) {
+					// This is part of the normal operation of the controller; the
+					// controller tried to use this volume for a claim but the claim
+					// was fulfilled by another volume. We did this; fix it.
+					klog.V(4).Infof("synchronizing PersistentVolume[%s]: volume is bound by controller to a claim that is bound to another volume, unbinding", volume.Name)
+					if err = ctrl.unbindVolume(volume); err != nil {
+						return err
+					}
+					return nil
+				} else {
+					// The PV must have been created with this ptr; leave it alone.
+					klog.V(4).Infof("synchronizing PersistentVolume[%s]: volume is bound by user to a claim that is bound to another volume, waiting for the claim to get unbound", volume.Name)
+					// This just updates the volume phase and clears
+					// volume.Spec.ClaimRef.UID. It leaves the volume pre-bound
+					// to the claim.
+					if err = ctrl.unbindVolume(volume); err != nil {
+						return err
+					}
+					return nil
+				}
+			}
+		}
+```
+
+接着，对 PV 执行 unbind 操作，不管 PV 是动态创建还是由用户手动创建，执行的操作都是一样的。具体逻辑可参加 [PV 清理操作](#PV-清理操作) 中对 `unbindVolume()` 的分析。
+
+# 参考 #
+
+- https://docs.openshift.com/container-platform/3.3/dev_guide/persistent_volumes.html
