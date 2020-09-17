@@ -11,7 +11,6 @@
     - [情景二、绑定完成一半](#情景二、绑定完成一半)
     - [情景三、已正确绑定](#情景三、已正确绑定)
     - [情景四、发生了错误的绑定](#情景四、发生了错误的绑定)
-- [参考](#参考)
 
 ## 概述 ##
 
@@ -236,28 +235,7 @@ func (ctrl *PersistentVolumeController) syncVolume(volume *v1.PersistentVolume) 
 		}
 ```
 
-先判断 `volume.Spec.ClaimRef.UID` 是否为空，如果为空，说明这个 PV 的 `Spec.ClaimRef` 信息是由用户自己在创建时配置的，即 `volume.Spec.ClaimRef.Name` 不为空且 `volume.Spec.ClaimRef.UID` 为空。
-
-例如用户按照以下格式创建 PV 对象：
-
-``` yaml
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: pv0001
-spec:
-  capacity:
-    storage: 1Gi
-  accessModes:
-  - ReadWriteOnce
-  nfs:
-    path: /tmp
-    server: 172.17.0.2
-  persistentVolumeReclaimPolicy: Recycle
-  claimRef:
-    name: claim1
-    namespace: default
-```
+先判断 `volume.Spec.ClaimRef.UID` 是否为空，如果为空，说明这个 PV 的 `Spec.ClaimRef` 信息是由用户自己在创建时配置的，即 `volume.Spec.ClaimRef.Name` 不为空且 `volume.Spec.ClaimRef.UID` 为空。可参见 [手动指定绑定对象](../../../volume/pv-pvc-bind.md#手动指定绑定对象)
 
 这个时候由于还没有完成绑定，因此对应的 PVC 的 UID 为空，这种情况下也会简单地将 PV 状态更新为 `Available` 状态，然后立刻返回。
 
@@ -817,7 +795,3 @@ type Deleter interface {
 ```
 
 接着，对 PV 执行 unbind 操作，不管 PV 是动态创建还是由用户手动创建，执行的操作都是一样的。具体逻辑可参加 [PV 清理操作](#PV-清理操作) 中对 `unbindVolume()` 的分析。
-
-# 参考 #
-
-- https://docs.openshift.com/container-platform/3.3/dev_guide/persistent_volumes.html
