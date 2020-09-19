@@ -28,7 +28,7 @@
   - [关于 PV 和 PVC 的绑定](volume/pv-pvc-bind.md)
   - [关于 attach 和 detach 操作](volume/attach-detach.md)
   - [关于 mount 和 umount 操作](volume/mount-umount.md)
-  - [关于 Annotation](volume/annotation.md)
+  - 关于 Annotation
 
 - Volume Plugin 框架和 Volume Plugin Manager
 
@@ -41,7 +41,11 @@
 
   - AttachDetach Controller
 
-    - 概述
+    - actualStateOfWorld
+    - desiredStateOfWorld
+    - desiredStateOfWorldPopulator
+    - reconciler
+    - AttachDetach Controller 核心实现
 
   - [PersistentVolume Controller](kube-controller-manager/volume/persistentvolume/overview.md)
 
@@ -50,11 +54,23 @@
 
   - Expand Controller
 
+  - PVProtectionController 和 PVCProtectionController
+
 - [Volume in Kube-Scheduler](kube-scheduler/volume/overview.md)
 
   - [Volume 相关操作在调度过程中的执行时机](kube-scheduler/volume/scheduler-volume-binder.md)
+  - 预选阶段 Volume 相关操作
+  - PVC 和 PV 的预绑定
+  - PVC 和 PV 的绑定
 
 - [Volume in Kubelet](kubelet/volume/overview.md)
+
+  - actualStateOfWorld
+  - desiredStateOfWorld
+  - desiredStateOfWorldPopulator
+  - reconciler
+
+- CSI
 
 - 各种 Volume Plugins 详解
 
@@ -68,4 +84,3 @@
   - projected
   - iscsi
 
-- CSI
