@@ -43,7 +43,7 @@
 
     - [actualStateOfWorld](kube-controller-manager/volume/attachdetach/actualstateofworld.md)
     - desiredStateOfWorld
-    - desiredStateOfWorldPopulator
+    - [desiredStateOfWorldPopulator](kube-controller-manager/volume/attachdetach/desiredstateofworldpopulator.md)
     - reconciler
     - AttachDetach Controller 核心实现
 
