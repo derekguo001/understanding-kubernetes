@@ -15,6 +15,7 @@
 
 ## Kubelet
 
+- [Kubelet 中的插件管理](kubelet/pluginmanager/overview.md)
 - [抢占](kubelet/preemption.md)
 
 ## Kube Proxy
