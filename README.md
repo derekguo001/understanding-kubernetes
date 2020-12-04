@@ -18,6 +18,7 @@
 - [Kubelet 中的插件管理](kubelet/pluginmanager/overview.md)
 
   - [desiredStateOfWorld 与 actualStateOfWorld](kubelet/pluginmanager/desiredStateOfWorld_actualStateOfWorld.md)
+  - [desiredStateOfWorldPopulator](kubelet/pluginmanager/desiredStateOfWorldPopulator.md)
 
 - [抢占](kubelet/preemption.md)
 
