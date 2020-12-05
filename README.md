@@ -19,6 +19,7 @@
 
   - [desiredStateOfWorld 与 actualStateOfWorld](kubelet/pluginmanager/desiredStateOfWorld_actualStateOfWorld.md)
   - [desiredStateOfWorldPopulator](kubelet/pluginmanager/desiredStateOfWorldPopulator.md)
+  - [reconciler](kubelet/pluginmanager/reconciler.md)
 
 - [抢占](kubelet/preemption.md)
 
