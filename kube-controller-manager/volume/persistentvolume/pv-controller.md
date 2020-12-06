@@ -531,7 +531,7 @@ func (ctrl *PersistentVolumeController) unbindVolume(volume *v1.PersistentVolume
 }
 ```
 
-接着更新本地的 PV 魂村，然后将 PV 更新为 `Available` 状态。
+接着更新本地的 PV 缓存，然后将 PV 更新为 `Available` 状态。
 
 ##### PV 删除操作 #####
 

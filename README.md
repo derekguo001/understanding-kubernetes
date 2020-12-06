@@ -6,6 +6,10 @@
 
 ## Kubernetes Scheduler
 
+- 调度算法详解
+
+  - [NodePorts](./kube-scheduler/scheduler-plugins/nodeports.md)
+
 ## Kubernetes Controller Manager
 
 - [Namespace](kube-controller-manager/namespace.md)
