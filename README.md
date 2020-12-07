@@ -8,6 +8,8 @@
 
 - 调度算法详解
 
+  - [PrioritySort](./kube-scheduler/scheduler-plugins/priority-sort.md)
+
   - [NodePorts](./kube-scheduler/scheduler-plugins/nodeports.md)
 
 ## Kubernetes Controller Manager
