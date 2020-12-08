@@ -10,6 +10,7 @@
 
   - [PrioritySort](./kube-scheduler/scheduler-plugins/priority-sort.md)
 
+  - [NodeName](kube-scheduler/scheduler-plugins/node-name.md)
   - [NodePorts](./kube-scheduler/scheduler-plugins/nodeports.md)
 
 ## Kubernetes Controller Manager
