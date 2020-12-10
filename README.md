@@ -12,7 +12,8 @@
   - [DefaultBinder](./kube-scheduler/scheduler-plugins/default-binder.md)
 
   - [NodeName](kube-scheduler/scheduler-plugins/node-name.md)
-  - [NodePorts](./kube-scheduler/scheduler-plugins/nodeports.md)
+  - [NodePorts](kube-scheduler/scheduler-plugins/node-ports.md)
+  - [NodeLabel](./kube-scheduler/scheduler-plugins/node-label.md)
 
 ## Kubernetes Controller Manager
 
