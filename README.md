@@ -8,12 +8,13 @@
 
 - 调度算法详解
 
-  - [PrioritySort](./kube-scheduler/scheduler-plugins/priority-sort.md)
-  - [DefaultBinder](./kube-scheduler/scheduler-plugins/default-binder.md)
+  - [PrioritySort](kube-scheduler/scheduler-plugins/priority-sort.md)
+  - [DefaultBinder](kube-scheduler/scheduler-plugins/default-binder.md)
 
   - [NodeName](kube-scheduler/scheduler-plugins/node-name.md)
   - [NodePorts](kube-scheduler/scheduler-plugins/node-ports.md)
-  - [NodeLabel](./kube-scheduler/scheduler-plugins/node-label.md)
+  - [NodeLabel](kube-scheduler/scheduler-plugins/node-label.md)
+  - [NodeUnschedulable](kube-scheduler/scheduler-plugins/node-unschedulable.md)
 
 ## Kubernetes Controller Manager
 
