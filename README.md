@@ -15,6 +15,7 @@
   - [NodePorts](kube-scheduler/scheduler-plugins/node-ports.md)
   - [NodeLabel](kube-scheduler/scheduler-plugins/node-label.md)
   - [NodeUnschedulable](kube-scheduler/scheduler-plugins/node-unschedulable.md)
+  - [SelectorSpread](kube-scheduler/scheduler-plugins/selector-spread.md)
 
 ## Kubernetes Controller Manager
 
