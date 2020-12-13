@@ -274,3 +274,108 @@ func skipSelectorSpread(pod *v1.Pod) bool {
 2. 按照权重算当前节点最终的得分：`节点维度得分*(1-Zone维度的权重)+Zone维度的得分*Zong维度的权重`。
 
 其中 Zone 维度的权重为 2/3，也就意味着 节点维度的权重为`(1-2/3)=1/3`。
+
+## 例子 ##
+
+### 不考虑 Zone 的情况 ###
+
+环境信息：
+
+有 2个 Label：
+
+``` go
+labels1 := map[string]string{
+	"foo": "bar",
+	"baz": "blah",
+}
+labels2 := map[string]string{
+	"bar": "foo",
+	"baz": "blah",
+}
+```
+
+有 2 个节点 n1 和 n2。
+
+#### 例子1 ####
+
+当前 Pod 的 Label 为 label1。
+节点1上有2个 Pod，Label 分别为 label1 和 label2；节点2上有2个Pod，Label 都是 label1。
+有一个 Service，Label 为 label1
+
+这两个节点的得分计算过程如下：
+PreScore 插入点：先匹配所有的 Label，匹配的结果是 Service 的 Label: label1。
+Score 插入点：分别计算每个节点的得分：节点1上第一个 Pod 的 Label 为 label1，与 PreSore 返回的 Label 匹配，当前节点得分为1；节点2上有2个 Label 为 label1 的 Pod，得分为2。
+NormalizeScore 插入点：找出得分最大的节点，其得分为2。节点1和节点2的最终得分分别为：100*(2-1)/2=50、100*(2-2)/2=0。
+
+#### 例子2 ####
+
+当前 Pod 的 Label 为 label1。
+节点1上有2个 Pod，Label 分别为 label1 和 label2；节点2上有1个Pod，Label 是 label1。
+有一个 Service，Label 为 "baz": "blah"
+有一个 ReplicationController，Label 为 "foo": "bar"。
+
+这两个节点的得分计算过程如下：
+PreScore 插入点：先匹配所有的 Label，匹配的结果是 "baz": "blah" 和 "foo": "bar"。
+Score 插入点：分别计算每个节点的得分：节点1上第一个 Pod 的 Label 为 label1，与 PreSore 返回的 Label 匹配，第2个 Pod 的 Label 为 label2，只与 "baz": "blah" 匹配，但与 "foo": "bar" 不匹配，因此不能计算入内，因此节点1得分为1；节点2上有1个 Label 为 label1 的 Pod，匹配，得分为1。
+NormalizeScore 插入点：找出得分最大的节点，其得分为1。节点1和节点2的最终得分分别为：100*(1-1)/2=0、100*(1-1)/2=0。
+
+这里需要特别注意的地方是 Label 与当前节点上的 Pod 进行匹配的时候，结果是取 "交集"。
+
+### 考虑 Zone 的情况 ###
+
+有 2个 Label：
+
+``` go
+labels1 := map[string]string{
+	"foo": "bar",
+	"baz": "blah",
+}
+labels2 := map[string]string{
+	"bar": "foo",
+	"baz": "blah",
+}
+```
+
+有 6 个节点和 3 个 Zone，对应关系为
+|节点|Zone|
+|---|---|
+|1|1|
+|2|2|
+|3|2|
+|4|3|
+|5|3|
+|6|3|
+
+#### 例子3 ####
+
+当前 Pod 的 Label 为 label1
+前 5 个节点上分别有一个 Pod，对应的 Label 分别为 label2、label1、label1、label2 和 label1。
+
+计算过程：
+
+|节点|1(Zone 1)|2(Zone 2)|3(Zone 2)|4(Zone 3)|5(Zone 3)|6(Zone 3)|说明|
+|---|---|---|---|---|---|---|---|
+|节点计数|0|1|1|0|1|0|最大节点的得分为1|
+|节点维度最初得分|100|0|0|100|0|100||
+|节点维度最终得分|33|0|0|33|0|33|为节点维度最初得分*1/3|
+|节点的Zone的计数|0|2|2|1|1|1||
+|节点的Zone最初得分|100|0|0|50|50|50|100*(最大Zone得分-当前Zone得分)/最大Zone得分|
+|节点的Zone最终得分|66|0|0|33|33|33|节点的Zone最初得分*2/3|
+|节点最终得分|100|0|0|66|33|66|节点维度最终得分+节点的Zone最终得分|
+
+#### 例子4 ####
+
+当前 Pod 的 Label 为 label1
+前 4 个节点上分别有一个 Pod，对应的 Label 分别为label1、label1、label2 和 label1。
+
+计算过程：
+
+|节点|1(Zone 1)|2(Zone 2)|3(Zone 2)|4(Zone 3)|5(Zone 3)|6(Zone 3)|说明|
+|---|---|---|---|---|---|---|---|
+|节点计数|1|1|0|1|0|0|最大节点的得分为1|
+|节点维度最初得分|0|0|100|0|100|100||
+|节点维度最终得分|0|0|33|0|33|33|为节点维度最初得分*1/3|
+|节点的Zone的计数|1|1|1|1|1|1||
+|节点的Zone最初得分|0|0|0|0|0|0|100*(最大Zone得分-当前Zone得分)/最大Zone得分|
+|节点的Zone最终得分|0|0|0|0|0|0|节点的Zone最初得分*2/3|
+|节点最终得分|0|0|33|0|33|33|节点维度最终得分+节点的Zone最终得分|
