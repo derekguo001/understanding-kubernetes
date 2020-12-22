@@ -6,6 +6,10 @@
 
 ## Kubernetes Scheduler
 
+- Kubernetes Scheduler 启动过程
+
+  - [参数初始化过程分析](./kube-scheduler/init/option.md)
+  
 - 调度算法详解
 
   - [PrioritySort](kube-scheduler/scheduler-plugins/priority-sort.md)
