@@ -9,6 +9,10 @@
 - Kubernetes Scheduler 启动过程
 
   - [参数初始化过程分析](./kube-scheduler/init/option.md)
+
+- Kubernetes Scheduler 中的组件
+
+  - [Algorithm Provider](./kube-scheduler/component/algorithm-provider.md)
   
 - 调度算法详解
 
