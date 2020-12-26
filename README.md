@@ -13,6 +13,7 @@
 - Kubernetes Scheduler 中的组件
 
   - [Algorithm Provider](./kube-scheduler/component/algorithm-provider.md)
+  - [Schedule Algorithm](./kube-scheduler/component/schedule-algorithm.md)
   
 - 调度算法详解
 
