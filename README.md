@@ -12,7 +12,8 @@
   - [Algorithm Provider](./kube-scheduler/component/algorithm-provider.md)
   - [Schedule Algorithm](./kube-scheduler/component/schedule-algorithm.md)
   - [KubeSchedulerProfile](./kube-scheduler/component/kube-scheduler-profile.md)
-  
+  - [Profile](./kube-scheduler/component/profile.md)
+
 - 调度算法详解
 
   - [PrioritySort](kube-scheduler/scheduler-plugins/priority-sort.md)
