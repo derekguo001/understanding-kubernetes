@@ -20,7 +20,7 @@ type NodeLabelArgs struct {
 - 节点最好有的 Label 的列表
 - 节点最好没有的 Label 的列表
 
-其中，前两个参数用于 Filter 插入点，后两个用于 Score 插入点。
+其中，前两个参数用于 Filter 扩展点，后两个用于 Score 扩展点。
 
 ## Filter ##
 
@@ -84,6 +84,6 @@ func (pl *NodeLabel) Score(ctx context.Context, state *framework.CycleState, pod
 }
 ```
 
-在 Score 插入点，会根据 PresentLabelsPreference 和 AbsentLabelsPreference 这两个参数来对节点进行打分。例如：这两个参数分别是 "[a, b, c], [d]"，当前节点包含的 Label 为 "[a b]"，也就意味着当前节点具有两个"最好有的 Label"(即"a"和"b")，以及没有任何一个"最好没有的 Label"(即"d")。
+在 Score 扩展点，会根据 PresentLabelsPreference 和 AbsentLabelsPreference 这两个参数来对节点进行打分。例如：这两个参数分别是 "[a, b, c], [d]"，当前节点包含的 Label 为 "[a b]"，也就意味着当前节点具有两个"最好有的 Label"(即"a"和"b")，以及没有任何一个"最好没有的 Label"(即"d")。
 
 因此当前的得分为 `100*((1+1)+1)/(3+1)=75`。

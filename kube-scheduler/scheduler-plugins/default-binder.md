@@ -1,6 +1,6 @@
 # DefaultBinder 调度插件 #
 
-DefaultBinder 调度插件是调度器默认使用用来将 Pod 与节点进行绑定的插件，它实现了 Bind 插入点。可以同时开启多个 Bind 插入点的插件。
+DefaultBinder 调度插件是调度器默认使用用来将 Pod 与节点进行绑定的插件，它实现了 Bind 扩展点。可以同时开启多个 Bind 扩展点的插件。
 
 ``` go
 // Bind binds pods to nodes using the k8s client.

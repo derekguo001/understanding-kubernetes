@@ -42,7 +42,7 @@ func NewRegistry() Registry {
 
 这里返回的 Registry 的 key 就是命令行选项中的 `DefaultProvider` 和 `ClusterAutoscalerProvider`，接下来看它们的 value。
 
-`DefaultProvider` 对应的 value 是使用 `getDefaultConfig()` 返回的，内容就是按照不同的插入点分类的不同的插件名称，代码如下：
+`DefaultProvider` 对应的 value 是使用 `getDefaultConfig()` 返回的，内容就是按照不同的扩展点分类的不同的插件名称，代码如下：
 
 ``` go
 func getDefaultConfig() *schedulerapi.Plugins {
@@ -105,7 +105,7 @@ func getDefaultConfig() *schedulerapi.Plugins {
 }
 ```
 
-需要注意的是，有可能同一个插件实现了多个插入点，因此会出现多次。
+需要注意的是，有可能同一个插件实现了多个扩展点，因此会出现多次。
 
 `ClusterAutoscalerProvider` 对应的 value：
 
@@ -122,7 +122,7 @@ func getClusterAutoscalerConfig() *schedulerapi.Plugins {
 }
 ```
 
-可以看出它的插件列表和 `DefaultProvider` 的插件列表几乎是一样的，只是将 Score 插入点的 `NodeResourcesLeastAllocated` 插件替换为 `NodeResourcesMostAllocated`。
+可以看出它的插件列表和 `DefaultProvider` 的插件列表几乎是一样的，只是将 Score 扩展点的 `NodeResourcesLeastAllocated` 插件替换为 `NodeResourcesMostAllocated`。
 
 在获取了插件列表后，还会使用 `applyFeatureGates()` 做一些额外的修改。
 

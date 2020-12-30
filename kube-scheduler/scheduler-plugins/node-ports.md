@@ -25,7 +25,7 @@ func getContainerPorts(pods ...*v1.Pod) []*v1.ContainerPort {
 }
 ```
 
-PreFilter 插入点会搜集当前 Pod 所使用的所有 Port，让它们存入到调度器缓存中。
+PreFilter 扩展点会搜集当前 Pod 所使用的所有 Port，让它们存入到调度器缓存中。
 
 ## Filter ##
 
@@ -45,7 +45,7 @@ func (pl *NodePorts) Filter(ctx context.Context, cycleState *framework.CycleStat
 }
 ```
 
-Filter 插入点首先会使用 `getPreFilterState()` 取回在 PreFilter 阶段存入调度器缓存中的数据，即当前 Pod 所使用的所有 Port 的列表。然后使用 `fitsPorts()` 来确定和当前节点上已使用的 Port 是否冲突。
+Filter 扩展点首先会使用 `getPreFilterState()` 取回在 PreFilter 阶段存入调度器缓存中的数据，即当前 Pod 所使用的所有 Port 的列表。然后使用 `fitsPorts()` 来确定和当前节点上已使用的 Port 是否冲突。
 
 ``` go
 func fitsPorts(wantPorts []*v1.ContainerPort, nodeInfo *framework.NodeInfo) bool {

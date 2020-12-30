@@ -33,7 +33,7 @@ func (pl *SelectorSpread) PreScore(ctx context.Context, cycleState *framework.Cy
 }
 ```
 
-在 PreScore 插入点，会根据当前 Pod 的 Label 找出包含此 Pod 的 "上级" 资源的 Label，并将结果存入到调度缓存中。注意返回的是 Label 的合集。
+在 PreScore 扩展点，会根据当前 Pod 的 Label 找出包含此 Pod 的 "上级" 资源的 Label，并将结果存入到调度缓存中。注意返回的是 Label 的合集。
 
 核心实现在 `DefaultSelector()` 中。
 
@@ -94,7 +94,7 @@ func DefaultSelector(pod *v1.Pod, sl corelisters.ServiceLister, cl corelisters.R
 
 ## Score ##
 
-Score 插入点会计算每个节点的得分并将其返回。注意 Score 不像 PreScore 那样每个 Pod 执行一次，而是针对每个 Pod 执行 N 次，N 是节点的数量。每次返回值是当前节点的得分。
+Score 扩展点会计算每个节点的得分并将其返回。注意 Score 不像 PreScore 那样每个 Pod 执行一次，而是针对每个 Pod 执行 N 次，N 是节点的数量。每次返回值是当前节点的得分。
 
 ``` go
 func (pl *SelectorSpread) Score(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
@@ -149,13 +149,13 @@ func countMatchingPods(namespace string, selector labels.Selector, nodeInfo *fra
 
 这个函数会遍历当前节点上与当前 Pod 处于同一个 Namespace 中的其它所有 Pod，如果这些 Pod 没有处于删除状态，并且与 PreScore 阶段得到的 Label 相匹配，则将当前节点的得分+1。
 
-也就是说 Score 插入点返回的值是每个节点上与当前 Pod 处于同一个 Namespace 且 Label 与 PreScore 插入点返回的 Label 相匹配的所有 Pod 的数量。
+也就是说 Score 扩展点返回的值是每个节点上与当前 Pod 处于同一个 Namespace 且 Label 与 PreScore 扩展点返回的 Label 相匹配的所有 Pod 的数量。
 
 ## NormalizeScore ##
 
-在 Score 插入点计算出来的结果并不是每个节点最终的得分，还需要通过在 NormalizeScore 进行修正。这里的修正其实是计算过程中非常重要的一个步骤，并非可有可无。
+在 Score 扩展点计算出来的结果并不是每个节点最终的得分，还需要通过在 NormalizeScore 进行修正。这里的修正其实是计算过程中非常重要的一个步骤，并非可有可无。
 
-SelectorSpread 的 NormalizeScore 插入点的逻辑才是计算节点得分的最重要的部分。
+SelectorSpread 的 NormalizeScore 扩展点的逻辑才是计算节点得分的最重要的部分。
 
 分两种情况进行讨论：
 1. 匹配到的 Pod 所在的节点不属于任何一个 Zone 的情况
@@ -190,7 +190,7 @@ func skipSelectorSpread(pod *v1.Pod) bool {
 	}
 ```
 
-找出在 Score 插入点得分最大的节点，然后把这个节点的得分存入 maxCountByNodeName。
+找出在 Score 扩展点得分最大的节点，然后把这个节点的得分存入 maxCountByNodeName。
 
 ```
     ...
@@ -303,9 +303,9 @@ labels2 := map[string]string{
 有一个 Service，Label 为 label1
 
 这两个节点的得分计算过程如下：
-PreScore 插入点：先匹配所有的 Label，匹配的结果是 Service 的 Label: label1。
-Score 插入点：分别计算每个节点的得分：节点1上第一个 Pod 的 Label 为 label1，与 PreSore 返回的 Label 匹配，当前节点得分为1；节点2上有2个 Label 为 label1 的 Pod，得分为2。
-NormalizeScore 插入点：找出得分最大的节点，其得分为2。节点1和节点2的最终得分分别为：100*(2-1)/2=50、100*(2-2)/2=0。
+PreScore 扩展点：先匹配所有的 Label，匹配的结果是 Service 的 Label: label1。
+Score 扩展点：分别计算每个节点的得分：节点1上第一个 Pod 的 Label 为 label1，与 PreSore 返回的 Label 匹配，当前节点得分为1；节点2上有2个 Label 为 label1 的 Pod，得分为2。
+NormalizeScore 扩展点：找出得分最大的节点，其得分为2。节点1和节点2的最终得分分别为：100*(2-1)/2=50、100*(2-2)/2=0。
 
 #### 例子2 ####
 
@@ -315,9 +315,9 @@ NormalizeScore 插入点：找出得分最大的节点，其得分为2。节点1
 有一个 ReplicationController，Label 为 "foo": "bar"。
 
 这两个节点的得分计算过程如下：
-PreScore 插入点：先匹配所有的 Label，匹配的结果是 "baz": "blah" 和 "foo": "bar"。
-Score 插入点：分别计算每个节点的得分：节点1上第一个 Pod 的 Label 为 label1，与 PreSore 返回的 Label 匹配，第2个 Pod 的 Label 为 label2，只与 "baz": "blah" 匹配，但与 "foo": "bar" 不匹配，因此不能计算入内，因此节点1得分为1；节点2上有1个 Label 为 label1 的 Pod，匹配，得分为1。
-NormalizeScore 插入点：找出得分最大的节点，其得分为1。节点1和节点2的最终得分分别为：100*(1-1)/2=0、100*(1-1)/2=0。
+PreScore 扩展点：先匹配所有的 Label，匹配的结果是 "baz": "blah" 和 "foo": "bar"。
+Score 扩展点：分别计算每个节点的得分：节点1上第一个 Pod 的 Label 为 label1，与 PreSore 返回的 Label 匹配，第2个 Pod 的 Label 为 label2，只与 "baz": "blah" 匹配，但与 "foo": "bar" 不匹配，因此不能计算入内，因此节点1得分为1；节点2上有1个 Label 为 label1 的 Pod，匹配，得分为1。
+NormalizeScore 扩展点：找出得分最大的节点，其得分为1。节点1和节点2的最终得分分别为：100*(1-1)/2=0、100*(1-1)/2=0。
 
 这里需要特别注意的地方是 Label 与当前节点上的 Pod 进行匹配的时候，结果是取 "交集"。
 

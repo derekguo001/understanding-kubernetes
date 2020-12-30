@@ -10,7 +10,7 @@ type ScheduleAlgorithm interface {
 }
 ```
 
-其中的 `Schedule()` 会执行传统的调度操作，即预选和优选。在引入了 scheduler framework 之后，对整个函数进行了重构，目前它会执行 `PreFilter`、`Filter`、`PreScore`、`Score` 和 `Normalize Score` 等插入点的工作，在具体执行时会通过 scheduler framework 来调用这些插入点的插件完成具体的工作。
+其中的 `Schedule()` 会执行传统的调度操作，即预选和优选。在引入了 scheduler framework 之后，对整个函数进行了重构，目前它会执行 `PreFilter`、`Filter`、`PreScore`、`Score` 和 `Normalize Score` 等扩展点的工作，在具体执行时会通过 scheduler framework 来调用这些扩展点的插件完成具体的工作。
 
 其中的 `Preempt()` 会执行具体的抢占操作。
 
