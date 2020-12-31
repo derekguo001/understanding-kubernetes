@@ -13,6 +13,7 @@
   - [Schedule Algorithm](./kube-scheduler/component/schedule-algorithm.md)
   - [KubeSchedulerProfile](./kube-scheduler/component/kube-scheduler-profile.md)
   - [Profile](./kube-scheduler/component/profile.md)
+  - [调度插件对象和扩展点对象](./kube-scheduler/component/plugin-and-extensionpoint.md)
 
 - 调度算法详解
 
