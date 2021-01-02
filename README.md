@@ -15,6 +15,7 @@
   - [Profile](./kube-scheduler/component/profile.md)
   - [调度插件对象和扩展点对象](./kube-scheduler/component/plugin-and-extensionpoint.md)
   - [framework.Registry](./kube-scheduler/component/framework-registry.md)
+  - [Kubernetes 调度框架](./kube-scheduler/component/framework.md)
 
 - 调度算法详解
 
