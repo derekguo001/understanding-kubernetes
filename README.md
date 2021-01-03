@@ -17,6 +17,9 @@
   - [framework.Registry](./kube-scheduler/component/framework-registry.md)
   - [Kubernetes 调度框架](./kube-scheduler/component/framework.md)
 
+- 调度过程分析
+  - [PreFilter](./kube-scheduler/scheduling/pre-filter.md)
+
 - 调度算法详解
 
   - [PrioritySort](kube-scheduler/scheduler-plugins/priority-sort.md)
