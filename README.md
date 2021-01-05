@@ -20,6 +20,7 @@
 - 调度过程分析
   - [PreFilter](./kube-scheduler/scheduling/pre-filter.md)
   - [Filter](./kube-scheduler/scheduling/filter.md)
+  - [PreScore](./kube-scheduler/scheduling/pre-score.md)
 
 - 调度算法详解
 

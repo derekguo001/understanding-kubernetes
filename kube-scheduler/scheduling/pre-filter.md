@@ -1,4 +1,4 @@
-# prefilter #
+# PreFilter 扩展点的执行 #
 
 `sched.Algorithm.Schedule()` 中首先会做一些基本的检测，然后执行所有实现了 PreFilter 扩展点的插件。
 
