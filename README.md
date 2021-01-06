@@ -18,9 +18,11 @@
   - [Kubernetes 调度框架](./kube-scheduler/component/framework.md)
 
 - 调度过程分析
+
   - [PreFilter](./kube-scheduler/scheduling/pre-filter.md)
   - [Filter](./kube-scheduler/scheduling/filter.md)
   - [PreScore](./kube-scheduler/scheduling/pre-score.md)
+  - [Score 整体流程](./kube-scheduler/scheduling/score/overview.md)
 
 - 调度算法详解
 
