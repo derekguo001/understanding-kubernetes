@@ -19,10 +19,11 @@
 
 - 调度过程分析
 
-  - [PreFilter](./kube-scheduler/scheduling/pre-filter.md)
-  - [Filter](./kube-scheduler/scheduling/filter.md)
-  - [PreScore](./kube-scheduler/scheduling/pre-score.md)
+  - [PreFilter 扩展点](./kube-scheduler/scheduling/pre-filter.md)
+  - [Filter 扩展点](./kube-scheduler/scheduling/filter.md)
+  - [PreScore 扩展点](./kube-scheduler/scheduling/pre-score.md)
   - [Score 整体流程](./kube-scheduler/scheduling/score/overview.md)
+    - [Score 和 NormalizeScore 扩展点](./kube-scheduler/scheduling/score/score-and-normalizescore.md)
 
 - 调度算法详解
 
