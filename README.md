@@ -24,6 +24,7 @@
   - [PreScore 扩展点](./kube-scheduler/scheduling/pre-score.md)
   - [Score 整体流程](./kube-scheduler/scheduling/score/overview.md)
     - [Score 和 NormalizeScore 扩展点](./kube-scheduler/scheduling/score/score-and-normalizescore.md)
+  - [Reserve 扩展点](./kube-scheduler/scheduling/reserve.md)
 
 - 调度算法详解
 
