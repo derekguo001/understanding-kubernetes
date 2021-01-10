@@ -26,6 +26,7 @@
     - [Score 和 NormalizeScore 扩展点](./kube-scheduler/scheduling/score/score-and-normalizescore.md)
   - [Reserve 扩展点](./kube-scheduler/scheduling/reserve.md)
   - [延时绑定](./kube-scheduler/scheduling/waiting-pod.md)
+    - [Permit 扩展点](./kube-scheduler/scheduling/permit.md)
 
 - 调度算法详解
 
