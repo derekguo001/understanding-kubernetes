@@ -30,6 +30,7 @@
     - [WaitOnPermit 扩展点](./kube-scheduler/scheduling/wait-on-permit.md)
   - [PreBind 扩展点](./kube-scheduler/scheduling/pre-bind.md)
   - [Bind 扩展点](./kube-scheduler/scheduling/bind.md)
+  - [PostBind 扩展点](./kube-scheduler/scheduling/post-bind.md)
 
 - 调度算法详解
 
