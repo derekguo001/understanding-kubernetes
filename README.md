@@ -17,7 +17,7 @@
   - [framework.Registry](./kube-scheduler/component/framework-registry.md)
   - [Kubernetes 调度框架](./kube-scheduler/component/framework.md)
 
-- 调度过程分析
+- [调度流程分析](./kube-scheduler/scheduling/overview.md)
 
   - [PreFilter 扩展点](./kube-scheduler/scheduling/pre-filter.md)
   - [Filter 扩展点](./kube-scheduler/scheduling/filter.md)
