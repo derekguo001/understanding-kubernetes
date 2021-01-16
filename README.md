@@ -6,6 +6,8 @@
 
 ## Kubernetes Scheduler
 
+- [Kubernetes Scheduler 概述](kube-scheduler/overview.md)
+
 - Kubernetes Scheduler 中的组件和启动过程
 
   - [参数初始化过程分析](kube-scheduler/component/option.md)
