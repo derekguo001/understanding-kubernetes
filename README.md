@@ -34,11 +34,10 @@
   - [Bind 扩展点](./kube-scheduler/scheduling/bind.md)
   - [PostBind 扩展点](./kube-scheduler/scheduling/post-bind.md)
 
-- 调度算法详解
+- [调度算法详解](kube-scheduler/scheduler-plugins/overview.md)
 
   - [PrioritySort](kube-scheduler/scheduler-plugins/priority-sort.md)
   - [DefaultBinder](kube-scheduler/scheduler-plugins/default-binder.md)
-
   - [NodeName](kube-scheduler/scheduler-plugins/node-name.md)
   - [NodePorts](kube-scheduler/scheduler-plugins/node-ports.md)
   - [NodeLabel](kube-scheduler/scheduler-plugins/node-label.md)
