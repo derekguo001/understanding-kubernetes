@@ -23,6 +23,7 @@
 
   - [PreFilter 扩展点](./kube-scheduler/scheduling/pre-filter.md)
   - [Filter 扩展点](./kube-scheduler/scheduling/filter.md)
+  - [PostFilter 扩展点](kube-scheduler/scheduling/post-filter.md)
   - [PreScore 扩展点](./kube-scheduler/scheduling/pre-score.md)
   - [Score 整体流程](./kube-scheduler/scheduling/score/overview.md)
     - [Score 和 NormalizeScore 扩展点](./kube-scheduler/scheduling/score/score-and-normalizescore.md)
