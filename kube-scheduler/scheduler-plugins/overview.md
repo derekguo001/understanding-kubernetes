@@ -4,7 +4,7 @@
 |---|---|---|---|
 |[PrioritySort](priority-sort.md)|QueueSort|True|提供默认的基于优先级的排序|
 |[DefaultBinder](default-binder.md)|Bind|True|提供默认的绑定机制|
-|DefaultPreemption|PostFilter|True|提供默认的抢占机制|
+|[DefaultPreemption](default-preemption/overview.md)|PostFilter|True|提供默认的抢占机制|
 |||||
 |[NodeName](node-name.md)|Filter|True|检查Pod指定的节点名称与当前节点是否匹配|
 |[NodePorts](node-ports.md)|PreFilter、Filter|True|检查Pod请求的端口在节点上是否可用|
