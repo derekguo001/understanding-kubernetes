@@ -40,6 +40,7 @@
   - [PrioritySort](kube-scheduler/scheduler-plugins/priority-sort.md)
   - [DefaultBinder](kube-scheduler/scheduler-plugins/default-binder.md)
   - [DefaultPreemption](kube-scheduler/scheduler-plugins/default-preemption/overview.md)
+    - [第一步:找到所有可以抢占的目标节点](kube-scheduler/scheduler-plugins/default-preemption/1.md)
   - [NodeName](kube-scheduler/scheduler-plugins/node-name.md)
   - [NodePorts](kube-scheduler/scheduler-plugins/node-ports.md)
   - [NodeLabel](kube-scheduler/scheduler-plugins/node-label.md)
