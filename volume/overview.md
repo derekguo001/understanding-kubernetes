@@ -27,7 +27,7 @@
 
 在 Kubernetes Controller Manager 组件中主要包含以下几个与 Volume 相关的 Controller。
 
-- **AttachDeatch Controller**
+- **AttachDetach Controller**
 
   顾名思义，它用于第二阶段，将底层的存储 attach 到 Pod 所在节点上或者将其从节点上 detach 掉。
 
